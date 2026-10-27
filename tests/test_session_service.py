@@ -77,6 +77,7 @@ async def test_set_session_service_updates_client() -> None:
             self.connected = True
             self.set_session_key = MagicMock()
             self._gateway = MagicMock()
+            self.set_fatal_error_handler = MagicMock()
 
     gateway_client_mod.OpenClawGatewayClient = OpenClawGatewayClient
 

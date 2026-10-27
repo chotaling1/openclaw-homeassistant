@@ -78,6 +78,7 @@ async def test_reconnect_service_calls_clients() -> None:
             self.connect = AsyncMock()
             self.connected = True
             self._gateway = MagicMock()
+            self.set_fatal_error_handler = MagicMock()
 
     gateway_client_mod.OpenClawGatewayClient = OpenClawGatewayClient
 

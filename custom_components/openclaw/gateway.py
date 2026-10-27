@@ -102,6 +102,38 @@ class GatewayProtocol:
         """Return the latest presence data."""
         return self._presence
 
+    def set_presence(self, presence: dict[str, Any]) -> None:
+        """Replace presence data with a newer snapshot from an event."""
+        self._presence = presence
+
+    @property
+    def fatal_error(self) -> Exception | None:
+        """Return the error that permanently stopped the connection, if any."""
+        return self._fatal_error
+
+    @property
+    def address(self) -> str:
+        """Return host:port of the gateway, for messages."""
+        return f"{self._host}:{self._port}"
+
+    async def wait_connected(self, timeout: float) -> None:
+        """Wait until the handshake has completed.
+
+        Raises:
+            asyncio.TimeoutError: If not connected within ``timeout`` seconds.
+        """
+        await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
+
+    def set_connected_callback(self, callback: Callable[[], None] | None) -> None:
+        """Call ``callback`` after every successful (re)connect handshake."""
+        self._on_connected = callback
+
+    def set_fatal_error_callback(
+        self, callback: Callable[[Exception], None] | None
+    ) -> None:
+        """Call ``callback`` when an auth/protocol error stops the connection."""
+        self._on_fatal_error = callback
+
     async def connect(self) -> None:
         """Connect to the Gateway and perform handshake."""
         if self._connect_task is not None:

@@ -363,8 +363,8 @@ class TestConnectionLoop:
         protocol._heartbeat_loop = AsyncMock()
         connected = Mock()
         fatal = Mock()
-        protocol._on_connected = connected
-        protocol._on_fatal_error = fatal
+        protocol.set_connected_callback(connected)
+        protocol.set_fatal_error_callback(fatal)
 
         await protocol._connection_loop()
 
@@ -372,7 +372,27 @@ class TestConnectionLoop:
         sleep.assert_awaited_once_with(5)
         connected.assert_called_once_with()
         fatal.assert_not_called()
-        assert protocol._fatal_error is None
+        assert protocol.fatal_error is None
+
+
+class TestPublicState:
+    """Accessors other modules use instead of private attributes."""
+
+    def test_address(self) -> None:
+        assert GatewayProtocol("gw.local", 18789, None).address == "gw.local:18789"
+
+    def test_set_presence(self) -> None:
+        protocol = GatewayProtocol("localhost", 1, None)
+        protocol.set_presence({"clients": ["a"]})
+        assert protocol.presence == {"clients": ["a"]}
+
+    @pytest.mark.asyncio
+    async def test_wait_connected(self) -> None:
+        protocol = GatewayProtocol("localhost", 1, None)
+        with pytest.raises(asyncio.TimeoutError):
+            await protocol.wait_connected(timeout=0.01)
+        protocol._connected_event.set()
+        await protocol.wait_connected(timeout=0.01)
 
 
 class TestChallengeHandshake:

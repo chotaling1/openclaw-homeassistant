@@ -144,7 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 translation_key="gateway_auth_failed",
             )
 
-    gateway_client._gateway._on_fatal_error = _on_fatal_error
+    gateway_client.set_fatal_error_handler(_on_fatal_error)
 
     # Clear any stale repair issue from a previous session
     async_delete_issue(hass, DOMAIN, "gateway_auth_failed")
