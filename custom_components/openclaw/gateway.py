@@ -175,12 +175,13 @@ class GatewayProtocol:
             await self._websocket.close()
             self._websocket = None
 
-        # Fail all pending requests
+        self._fail_pending_requests("Connection closed")
+
+    def _fail_pending_requests(self, reason: str) -> None:
+        """Fail every in-flight request so callers can react immediately."""
         for future in self._pending_requests.values():
             if not future.done():
-                future.set_exception(
-                    GatewayConnectionError("Connection closed")
-                )
+                future.set_exception(GatewayConnectionError(reason))
         self._pending_requests.clear()
 
     async def _connection_loop(self) -> None:
@@ -267,6 +268,9 @@ class GatewayProtocol:
                     finally:
                         self._connected = False
                         self._connected_event.clear()
+                        # Responses can't arrive on a dead socket; fail now
+                        # rather than leaving requests to hit their timeout.
+                        self._fail_pending_requests("Connection lost")
                         if self._receive_task:
                             self._receive_task.cancel()
                             try:
