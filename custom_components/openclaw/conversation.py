@@ -107,7 +107,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up OpenClaw conversation entity."""
-    gateway_client: OpenClawGatewayClient = hass.data[DOMAIN][config_entry.entry_id]
+    gateway_client: OpenClawGatewayClient = config_entry.runtime_data
 
     async_add_entities([OpenClawConversationEntity(config_entry, gateway_client)])
 

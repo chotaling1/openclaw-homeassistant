@@ -26,7 +26,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up OpenClaw binary sensor."""
-    gateway_client: OpenClawGatewayClient = hass.data[DOMAIN][entry.entry_id]
+    gateway_client: OpenClawGatewayClient = entry.runtime_data
     async_add_entities([OpenClawGatewayConnectivitySensor(entry, gateway_client)])
 
 

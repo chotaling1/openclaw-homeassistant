@@ -7,7 +7,6 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
 from .gateway_client import OpenClawGatewayClient
 
 _SAFE_HEALTH_FIELDS = (
@@ -74,8 +73,8 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    gateway_client: OpenClawGatewayClient | None = hass.data.get(DOMAIN, {}).get(
-        entry.entry_id
+    gateway_client: OpenClawGatewayClient | None = getattr(
+        entry, "runtime_data", None
     )
 
     diagnostics: dict[str, Any] = {

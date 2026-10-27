@@ -1,80 +1,55 @@
-"""Tests for unload/reload guards without HA runtime."""
+"""Entry setup / unload lifecycle (HA-free)."""
 
-import importlib.util
-import sys
-from pathlib import Path
-from types import ModuleType
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-
-def _load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+from tests._init_loader import FakeClient, load_integration, make_entry, make_hass
 
 
 @pytest.mark.asyncio
-async def test_unload_returns_true_when_entry_missing() -> None:
-    sys.modules.setdefault("homeassistant", ModuleType("homeassistant"))
-    config_entries_mod = ModuleType("homeassistant.config_entries")
-    const_mod = ModuleType("homeassistant.const")
-    core_mod = ModuleType("homeassistant.core")
-    exceptions_mod = ModuleType("homeassistant.exceptions")
-    event_mod = ModuleType("homeassistant.helpers.event")
-    issue_mod = ModuleType("homeassistant.helpers.issue_registry")
-    service_mod = ModuleType("homeassistant.helpers.service")
-    sys.modules["homeassistant.config_entries"] = config_entries_mod
-    sys.modules["homeassistant.const"] = const_mod
-    sys.modules["homeassistant.core"] = core_mod
-    sys.modules["homeassistant.exceptions"] = exceptions_mod
-    sys.modules["homeassistant.helpers.event"] = event_mod
-    sys.modules["homeassistant.helpers.issue_registry"] = issue_mod
-    sys.modules["homeassistant.helpers.service"] = service_mod
-    sys.modules.setdefault("homeassistant.helpers", ModuleType("homeassistant.helpers"))
+async def test_setup_stores_client_in_runtime_data() -> None:
+    integration = load_integration()
+    hass = make_hass()
+    entry = make_entry("entry-1")
+    entry.runtime_data = None
 
-    class Platform:
-        BINARY_SENSOR = "binary_sensor"
-        CONVERSATION = "conversation"
-        SENSOR = "sensor"
+    assert await integration.async_setup_entry(hass, entry) is True
 
-    const_mod.CONF_HOST = "host"
-    const_mod.CONF_PORT = "port"
-    const_mod.CONF_TOKEN = "token"
-    const_mod.Platform = Platform
-    config_entries_mod.ConfigEntry = object
-    core_mod.HomeAssistant = object
-    exceptions_mod.ConfigEntryAuthFailed = type("ConfigEntryAuthFailed", (Exception,), {})
-    exceptions_mod.ConfigEntryNotReady = type("ConfigEntryNotReady", (Exception,), {})
-    event_mod.async_track_time_interval = lambda *args, **kwargs: None
-    issue_mod.IssueSeverity = type("IssueSeverity", (), {"ERROR": "error"})()
-    issue_mod.async_create_issue = lambda *args, **kwargs: None
-    issue_mod.async_delete_issue = lambda *args, **kwargs: None
-    service_mod.async_register_admin_service = (
-        lambda hass, domain, service, handler, schema: hass.services.async_register(
-            domain, service, handler, schema=schema
-        )
+    assert isinstance(entry.runtime_data, FakeClient)
+    entry.runtime_data.connect.assert_awaited_once()
+    entry.runtime_data.set_fatal_error_handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_setup_disconnects_when_platforms_fail() -> None:
+    integration = load_integration()
+    hass = make_hass()
+    hass.config_entries.async_forward_entry_setups = AsyncMock(
+        side_effect=RuntimeError("boom")
     )
+    entry = make_entry("entry-1")
 
-    base = Path(__file__).parent.parent / "custom_components" / "openclaw"
-    sys.modules.setdefault("custom_components", ModuleType("custom_components"))
-    sys.modules.setdefault("custom_components.openclaw", ModuleType("custom_components.openclaw"))
+    assert await integration.async_setup_entry(hass, entry) is False
+    entry.runtime_data.disconnect.assert_awaited_once()
 
-    _load_module("custom_components.openclaw.const", base / "const.py")
-    _load_module("custom_components.openclaw.exceptions", base / "exceptions.py")
-    gateway_client_mod = ModuleType("custom_components.openclaw.gateway_client")
-    sys.modules["custom_components.openclaw.gateway_client"] = gateway_client_mod
-    gateway_client_mod.OpenClawGatewayClient = object
 
-    integration = _load_module("custom_components.openclaw.__init__", base / "__init__.py")
+@pytest.mark.asyncio
+async def test_unload_disconnects_and_returns_platform_result() -> None:
+    integration = load_integration()
+    hass = make_hass()
+    entry = make_entry("entry-1")
 
-    hass = MagicMock()
-    hass.data = {}
-    entry = MagicMock()
-    entry.entry_id = "missing"
+    assert await integration.async_unload_entry(hass, entry) is True
+    entry.runtime_data.disconnect.assert_awaited_once()
 
-    result = await integration.async_unload_entry(hass, entry)
-    assert result is True
+
+@pytest.mark.asyncio
+async def test_unload_disconnects_even_if_platform_unload_fails() -> None:
+    integration = load_integration()
+    hass = make_hass()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+    entry = make_entry("entry-1")
+
+    assert await integration.async_unload_entry(hass, entry) is False
+    entry.runtime_data.disconnect.assert_awaited_once()

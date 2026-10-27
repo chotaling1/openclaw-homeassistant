@@ -65,7 +65,7 @@ async def test_diagnostics_redacts_token_and_includes_health() -> None:
     )
 
     hass = MagicMock()
-    hass.data = {"openclaw": {"entry-1": client}}
+    entry.runtime_data = client
 
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
 

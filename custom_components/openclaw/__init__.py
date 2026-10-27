@@ -1,14 +1,14 @@
 """The OpenClaw integration."""
 
-import inspect
 import logging
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue, async_delete_issue
 from homeassistant.helpers.service import async_register_admin_service
 
@@ -24,10 +24,8 @@ from .const import (
     DEFAULT_AGENT_ID,
     DEFAULT_MODEL,
     DEFAULT_SESSION_KEY,
-    DEFAULT_STRIP_EMOJIS,
     DEFAULT_THINKING,
     DEFAULT_TIMEOUT,
-    DEFAULT_TTS_MAX_CHARS,
     DEFAULT_USE_SSL,
     DOMAIN,
 )
@@ -41,11 +39,12 @@ from .gateway_client import OpenClawGatewayClient
 
 _LOGGER = logging.getLogger(__name__)
 
+type OpenClawConfigEntry = ConfigEntry[OpenClawGatewayClient]
+
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CONVERSATION, Platform.SENSOR]
 SERVICE_RECONNECT = "reconnect"
 SERVICE_SET_SESSION = "set_session"
-_SERVICE_REGISTERED = "_service_registered"
-_PLATFORMS_LOADED = "_platforms_loaded"
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _RECONNECT_SCHEMA = vol.Schema({vol.Optional("entry_id"): str})
 _SESSION_SCHEMA = vol.Schema(
     {
@@ -67,7 +66,47 @@ _OPTION_KEYS = {
 }
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+def _target_clients(
+    hass: HomeAssistant, entry_id: str | None
+) -> list[OpenClawGatewayClient]:
+    """Return the gateway clients a service call applies to.
+
+    One loaded entry when ``entry_id`` is given, otherwise every loaded entry.
+    """
+    entries = [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+    ]
+    if entry_id:
+        entries = [entry for entry in entries if entry.entry_id == entry_id]
+        if not entries:
+            _LOGGER.warning("Service call for unknown or unloaded entry: %s", entry_id)
+    return [entry.runtime_data for entry in entries]
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the integration's services once, for all entries."""
+
+    async def _async_handle_reconnect(call: ServiceCall) -> None:
+        for client in _target_clients(hass, call.data.get("entry_id")):
+            await client.disconnect()
+            await client.connect()
+
+    async def _async_handle_set_session(call: ServiceCall) -> None:
+        for client in _target_clients(hass, call.data.get("entry_id")):
+            client.set_session_key(call.data[CONF_SESSION_KEY])
+
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_RECONNECT, _async_handle_reconnect, _RECONNECT_SCHEMA
+    )
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_SET_SESSION, _async_handle_set_session, _SESSION_SCHEMA
+    )
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: OpenClawConfigEntry) -> bool:
     """Set up OpenClaw from a config entry."""
     _LOGGER.info("Setting up OpenClaw integration")
 
@@ -149,84 +188,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Clear any stale repair issue from a previous session
     async_delete_issue(hass, DOMAIN, "gateway_auth_failed")
 
-    # Store client in hass.data
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = gateway_client
+    entry.runtime_data = gateway_client
 
-    if not hass.data[DOMAIN].get(_SERVICE_REGISTERED):
-        async def _async_handle_reconnect(call) -> None:
-            entry_id = call.data.get("entry_id")
-            clients = hass.data.get(DOMAIN, {})
-
-            if entry_id:
-                target = clients.get(entry_id)
-                if not target:
-                    _LOGGER.warning("Reconnect requested for unknown entry: %s", entry_id)
-                    return
-                targets = [target]
-            else:
-                targets = [
-                    client
-                    for key, client in clients.items()
-                    if key not in (_SERVICE_REGISTERED, _PLATFORMS_LOADED)
-                ]
-
-            for client in targets:
-                await client.disconnect()
-                await client.connect()
-
-        async_register_admin_service(
-            hass,
-            DOMAIN,
-            SERVICE_RECONNECT,
-            _async_handle_reconnect,
-            _RECONNECT_SCHEMA,
-        )
-
-        async def _async_handle_set_session(call) -> None:
-            entry_id = call.data.get("entry_id")
-            session_key = call.data[CONF_SESSION_KEY]
-            clients = hass.data.get(DOMAIN, {})
-
-            if entry_id:
-                target = clients.get(entry_id)
-                if not target:
-                    _LOGGER.warning(
-                        "Session update requested for unknown entry: %s",
-                        entry_id,
-                    )
-                    return
-                targets = [target]
-            else:
-                targets = [
-                    client
-                    for key, client in clients.items()
-                    if key not in (_SERVICE_REGISTERED, _PLATFORMS_LOADED)
-                ]
-
-            for client in targets:
-                client.set_session_key(session_key)
-
-        async_register_admin_service(
-            hass,
-            DOMAIN,
-            SERVICE_SET_SESSION,
-            _async_handle_set_session,
-            _SESSION_SCHEMA,
-        )
-        hass.data[DOMAIN][_SERVICE_REGISTERED] = True
-
-    # Forward setup to platforms (guard against duplicate setup attempts)
-    platforms_loaded = hass.data[DOMAIN].setdefault(_PLATFORMS_LOADED, set())
-    if entry.entry_id not in platforms_loaded:
-        try:
-            await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        except Exception:
-            _LOGGER.exception("Failed to set up platforms")
-            await gateway_client.disconnect()
-            hass.data[DOMAIN].pop(entry.entry_id, None)
-            return False
-        platforms_loaded.add(entry.entry_id)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        _LOGGER.exception("Failed to set up platforms")
+        await gateway_client.disconnect()
+        return False
 
     # Register reload listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -234,50 +203,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: OpenClawConfigEntry) -> bool:
     """Unload a config entry."""
     _LOGGER.info("Unloading OpenClaw integration")
 
-    # Get client before unloading
-    gateway_client: OpenClawGatewayClient | None = (
-        hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    )
-    if gateway_client is None:
-        _LOGGER.debug(
-            "Entry not found in hass.data during unload: %s", entry.entry_id
-        )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # Unload platforms only if they were loaded.
-    platforms_loaded = hass.data.get(DOMAIN, {}).get(_PLATFORMS_LOADED, set())
-    if entry.entry_id in platforms_loaded:
-        try:
-            unload_result = hass.config_entries.async_unload_platforms(
-                entry, PLATFORMS
-            )
-            if inspect.isawaitable(unload_result):
-                unload_ok = await unload_result
-            else:
-                unload_ok = bool(unload_result) if unload_result is not None else True
-        except ValueError:
-            _LOGGER.warning(
-                "Conversation platform was not loaded for entry: %s", entry.entry_id
-            )
-            unload_ok = True
-        if unload_ok:
-            platforms_loaded.discard(entry.entry_id)
-    else:
-        unload_ok = True
-
-    # Always disconnect and cleanup, even if unload failed
-    if gateway_client is not None:
-        await gateway_client.disconnect()
-        _LOGGER.info("Disconnected from OpenClaw Gateway")
-    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    # Always disconnect, even if a platform failed to unload: a dangling
+    # connection would keep receiving events for an entry that is going away.
+    await entry.runtime_data.disconnect()
+    _LOGGER.info("Disconnected from OpenClaw Gateway")
 
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: OpenClawConfigEntry) -> None:
     """Reload config entry.
 
     Delegate to Home Assistant's config-entry machinery rather than calling

@@ -31,7 +31,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up OpenClaw diagnostic sensors."""
-    client: OpenClawGatewayClient = hass.data[DOMAIN][entry.entry_id]
+    client: OpenClawGatewayClient = entry.runtime_data
 
     async def _async_update_status() -> dict[str, Any]:
         if not client.connected:
