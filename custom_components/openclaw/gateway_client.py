@@ -201,12 +201,18 @@ class OpenClawGatewayClient:
         self._gateway.on_event("agent", self._handle_agent_event)
         self._gateway.on_event("presence", self._handle_presence_event)
         self._gateway.on_event("session.message", self._handle_session_message)
-        self._gateway._on_connected = self._on_gateway_connected
+        self._gateway.set_connected_callback(self._on_gateway_connected)
+
+    def set_fatal_error_handler(
+        self, callback: Callable[[Exception], None] | None
+    ) -> None:
+        """Call ``callback`` when an auth/protocol error stops the connection."""
+        self._gateway.set_fatal_error_callback(callback)
 
     @property
     def fatal_error(self) -> Exception | None:
         """Return the fatal error that stopped the gateway connection, if any."""
-        return self._gateway._fatal_error
+        return self._gateway.fatal_error
 
     async def connect(self) -> None:
         """Connect to Gateway.
@@ -219,11 +225,9 @@ class OpenClawGatewayClient:
 
         # Wait for connection to be established (event-based, no polling)
         try:
-            await asyncio.wait_for(
-                self._gateway._connected_event.wait(), timeout=5.0
-            )
+            await self._gateway.wait_connected(timeout=5.0)
         except asyncio.TimeoutError:
-            fatal = self._gateway._fatal_error
+            fatal = self._gateway.fatal_error
             if isinstance(fatal, GatewayAuthenticationError):
                 raise fatal
             if isinstance(fatal, ProtocolError):
@@ -231,8 +235,8 @@ class OpenClawGatewayClient:
             if fatal:
                 raise GatewayConnectionError(str(fatal)) from fatal
             raise GatewayConnectionError(
-                f"Connection timeout - Gateway at {self._gateway._host}:"
-                f"{self._gateway._port} may not be reachable"
+                f"Connection timeout - Gateway at {self._gateway.address} "
+                "may not be reachable"
             )
 
     async def disconnect(self) -> None:
@@ -668,7 +672,7 @@ class OpenClawGatewayClient:
         if payload:
             if isinstance(payload, list):
                 payload = {"clients": payload}
-            self._gateway._presence = payload
+            self._gateway.set_presence(payload)
 
     # --- Proactive voice -------------------------------------------------
 
