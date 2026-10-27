@@ -47,10 +47,20 @@ def trim_tts_text(text: str, max_chars: int) -> str:
     return text[: max_chars - 3].rstrip() + "..."
 
 
+# Characters that can trail a question without ending it: closing quotes and
+# brackets, markdown emphasis, and ellipsis-style dots after the "?".
+_TRAILING_CLOSERS = " \t\r\n\"'”’»)]}*_~`"
+_ENDS_WITH_QUESTION = re.compile(r"\?[?!‽]*$")
+
+
 def response_expects_followup(text: str) -> bool:
-    """Return True if the response looks like it asks a follow-up question.
+    """Return True if the response ends by asking the user something.
 
     Keeps the satellite mic open so the user can reply without re-triggering
-    the wake word. We treat any "?" in the reply as a follow-up cue.
+    the wake word. Only the end of the reply counts: a "?" inside a URL, a
+    quoted question, or a question followed by more sentences doesn't.
     """
-    return "?" in (text or "")
+    if not text:
+        return False
+    tail = strip_emojis(text).rstrip(_TRAILING_CLOSERS)
+    return bool(_ENDS_WITH_QUESTION.search(tail))
