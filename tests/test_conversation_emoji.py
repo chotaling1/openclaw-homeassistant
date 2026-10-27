@@ -64,3 +64,38 @@ def test_trim_tts_text() -> None:
     assert text.trim_tts_text("short", 10) == "short"
     assert text.trim_tts_text("1234567890", 0) == "1234567890"
     assert text.trim_tts_text("1234567890", 6) == "123..."
+
+
+def _stream(chunks, *, strip=True, max_chars=0) -> str:
+    f = text.SpeechFilter(strip=strip, max_chars=max_chars)
+    return "".join(f.feed(c) for c in chunks)
+
+
+class TestSpeechFilter:
+    def test_matches_whole_text_stripping(self) -> None:
+        assert _stream(["Done ✅ ", "enjoy 🧀!"]) == "Done enjoy!"
+        assert _stream(["🎉 ", "Party ", "time"]) == "Party time"
+
+    def test_keeps_spaces_between_plain_chunks(self) -> None:
+        assert _stream(["It's sunny ", "and warm."]) == "It's sunny and warm."
+
+    def test_drops_trailing_space(self) -> None:
+        assert _stream(["All set ", "👍"]) == "All set"
+
+    def test_emoji_split_across_chunks(self) -> None:
+        assert _stream(["Family 👨‍", "👩‍👧 night"]) == "Family night"
+
+    def test_no_strip_passes_through(self) -> None:
+        assert _stream(["Hi 👋 ", "there"], strip=False) == "Hi 👋 there"
+
+    def test_cap_matches_trim_tts_text(self) -> None:
+        full = "The quick brown fox jumps over the lazy dog."
+        chunks = ["The quick ", "brown fox ", "jumps over ", "the lazy dog."]
+        assert _stream(chunks, max_chars=20) == text.trim_tts_text(full, 20)
+
+    def test_cap_stops_further_output(self) -> None:
+        f = text.SpeechFilter(strip=False, max_chars=8)
+        assert f.feed("1234567890") == "12345..."
+        assert len("12345...") <= 8
+        assert f.done
+        assert f.feed("more") == ""

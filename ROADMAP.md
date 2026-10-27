@@ -7,7 +7,7 @@ listed features (cron/spawn services, usage sensors) that were never implemented
 ## Shipped today
 
 - **Conversation entity** — voice/text Assist agent backed by the OpenClaw Gateway,
-  with streaming responses (and a fallback for older HA), per-request model/thinking
+  with streaming responses through HA's chat log, per-request model/thinking
   overrides, and session selection.
 - **Multi-turn voice** — keeps the satellite mic open when the agent's reply asks a
   follow-up question (`continue_conversation`).

@@ -3,14 +3,8 @@
 Used by tests that need to exercise `custom_components/openclaw/conversation.py`
 without a real Home Assistant installation.
 
-The `streaming` argument controls the shape of the stubbed `ConversationResult`
-/ `StreamingConversationResult` so individual tests can exercise each code path
-in `_build_streaming_result`:
-
-- "none":     No streaming support. `_supports_streaming_result()` -> False.
-- "primary":  `ConversationResult` accepts `setattr(..., "response_stream", ...)`.
-- "fallback": `ConversationResult` rejects that setattr (via __slots__), and a
-              separate `StreamingConversationResult` class is exposed.
+Conversation entity behavior end to end is tested against a real Home
+Assistant in tests_ha/; these stubs only support HA-free unit tests.
 """
 
 from __future__ import annotations
@@ -37,7 +31,7 @@ def _load_module(name: str, path: Path) -> ModuleType:
     return module
 
 
-def load_conversation_module(*, streaming: str = "none") -> ModuleType:
+def load_conversation_module() -> ModuleType:
     """Stub homeassistant.* and load the conversation module fresh."""
     _stub_module("homeassistant")
     _stub_module("homeassistant.components")
@@ -70,42 +64,18 @@ def load_conversation_module(*, streaming: str = "none") -> ModuleType:
         def async_add_assistant_content_without_tools(self, _content: Any) -> None:
             return None
 
-    if streaming == "fallback":
-        # __slots__ omits response_stream so setattr raises AttributeError,
-        # forcing _build_streaming_result into the StreamingConversationResult branch.
-        class ConversationResult:
-            __slots__ = ("response", "conversation_id", "continue_conversation")
+    class ConversationResult:
+        __slots__ = ("response", "conversation_id", "continue_conversation")
 
-            def __init__(self, response: Any, conversation_id: Any = None) -> None:
-                self.response = response
-                self.conversation_id = conversation_id
-                self.continue_conversation = False
-
-        class StreamingConversationResult:
-            def __init__(
-                self,
-                response: Any,
-                conversation_id: Any = None,
-                response_stream: Any = None,
-            ) -> None:
-                self.response = response
-                self.conversation_id = conversation_id
-                self.response_stream = response_stream
-                self.continue_conversation = False
-
-        conversation_mod.StreamingConversationResult = StreamingConversationResult
-    else:
-        class ConversationResult:
-            # Annotation is what _supports_streaming_result inspects in "primary"
-            # mode; harmless when unused in "none" mode.
-            __annotations__ = (
-                {"response_stream": object} if streaming == "primary" else {}
-            )
-
-            def __init__(self, response: Any, conversation_id: Any = None) -> None:
-                self.response = response
-                self.conversation_id = conversation_id
-                self.continue_conversation = False
+        def __init__(
+            self,
+            response: Any,
+            conversation_id: Any = None,
+            continue_conversation: bool = False,
+        ) -> None:
+            self.response = response
+            self.conversation_id = conversation_id
+            self.continue_conversation = continue_conversation
 
     class IntentResponse:
         def __init__(self, language: str) -> None:

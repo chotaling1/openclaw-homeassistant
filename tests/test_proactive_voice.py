@@ -6,7 +6,7 @@ import pytest
 
 from tests._conversation_loader import load_conversation_module
 
-_conv = load_conversation_module(streaming="none")
+_conv = load_conversation_module()
 OpenClawGatewayClient = _conv.OpenClawGatewayClient
 OpenClawConversationEntity = _conv.OpenClawConversationEntity
 
