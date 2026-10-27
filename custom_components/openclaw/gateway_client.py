@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any, AsyncIterator, Callable
 
-from .const import PROACTIVE_SUPPRESS_SECONDS
+from .const import AGENT_RETRY_RECONNECT_SECONDS, PROACTIVE_SUPPRESS_SECONDS
 from .exceptions import (
     AgentExecutionError,
     GatewayAuthenticationError,
@@ -340,9 +340,7 @@ class OpenClawGatewayClient:
             params["extraSystemPrompt"] = extra_system_prompt
 
         try:
-            response = await self._gateway.send_request(
-                method="agent", params=params, timeout=10.0
-            )
+            response = await self._send_agent_request(params)
         except ProtocolError as err:
             if "extraSystemPrompt" not in params:
                 raise
@@ -355,9 +353,7 @@ class OpenClawGatewayClient:
             )
             self._extra_prompt_supported = False
             del params["extraSystemPrompt"]
-            response = await self._gateway.send_request(
-                method="agent", params=params, timeout=10.0
-            )
+            response = await self._send_agent_request(params)
 
         payload = response.get("payload", {})
         run_id = payload.get("runId")
@@ -371,6 +367,37 @@ class OpenClawGatewayClient:
         self._agent_runs[run_id] = agent_run
         self._buffer_agent_payload(agent_run, payload)
         return agent_run
+
+    async def _send_agent_request(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Send an ``agent`` request, retrying once across a reconnect.
+
+        A gateway restart drops the socket; the request fails with a
+        connection error while the connection loop is already reconnecting.
+        Wait (bounded) for it and resend with the same idempotency key, so a
+        request that actually landed before the drop isn't run twice.
+        """
+        try:
+            return await self._gateway.send_request(
+                method="agent", params=params, timeout=10.0
+            )
+        except GatewayConnectionError as err:
+            if self._gateway.fatal_error is not None:
+                raise
+            _LOGGER.info(
+                "Agent request failed (%s); waiting up to %.0fs for the "
+                "gateway to reconnect before retrying",
+                err,
+                AGENT_RETRY_RECONNECT_SECONDS,
+            )
+            try:
+                await self._gateway.wait_connected(
+                    timeout=AGENT_RETRY_RECONNECT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                raise err from None
+            return await self._gateway.send_request(
+                method="agent", params=params, timeout=10.0
+            )
 
     async def send_agent_request(
         self, message: str, idempotency_key: str | None = None

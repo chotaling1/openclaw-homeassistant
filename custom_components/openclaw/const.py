@@ -106,3 +106,8 @@ CLIENT_MODE = "backend"
 DEVICE_ROLE = "operator"
 DEVICE_SCOPES = ["operator.read", "operator.write"]
 CHALLENGE_TIMEOUT = 2.0  # seconds to wait for connect.challenge before fallback
+
+# When an agent request fails because the gateway connection is down (e.g. a
+# gateway restart), wait this long for the reconnect and resend it once with
+# the same idempotency key, so the gateway dedupes if the first one landed.
+AGENT_RETRY_RECONNECT_SECONDS = 10.0

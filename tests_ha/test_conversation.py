@@ -72,3 +72,19 @@ async def test_agent_error_speaks_friendly_message(
     speech = _speech(result)
     assert "error while processing" in speech
     assert "model_error" not in speech
+
+
+async def test_request_survives_gateway_restart(
+    hass: HomeAssistant, agent_entity_id: str, gateway: FakeGatewayProtocol
+) -> None:
+    from custom_components.openclaw.exceptions import GatewayConnectionError
+
+    gateway.fail_next_agent = GatewayConnectionError("Connection lost")
+    task = await _converse(hass, agent_entity_id, "what's on the calendar")
+    run_id = await gateway.next_run_id()
+    await gateway.reply(run_id, "Nothing today.")
+    result = await asyncio.wait_for(task, 5)
+
+    assert _speech(result) == "Nothing today."
+    keys = [p["idempotencyKey"] for m, p in gateway.requests if m == "agent"]
+    assert len(keys) == 2 and keys[0] == keys[1]

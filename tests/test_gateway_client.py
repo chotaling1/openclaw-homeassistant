@@ -309,14 +309,21 @@ class TestHandleAgentEvent:
 
 class TestSendAgentRequest:
     @pytest.mark.asyncio
-    async def test_connection_error_propagates(self) -> None:
+    async def test_connection_error_propagates(self, monkeypatch) -> None:
+        # No reconnect within the retry window: the original error surfaces.
+        monkeypatch.setattr(_gateway_client, "AGENT_RETRY_RECONNECT_SECONDS", 0.01)
         client = OpenClawGatewayClient("localhost", 1, None)
         client._gateway.send_request = AsyncMock(  # type: ignore[attr-defined]
             side_effect=GatewayConnectionError("Not connected to Gateway"),
         )
 
-        with pytest.raises(GatewayConnectionError):
+        with pytest.raises(GatewayConnectionError, match="Not connected"):
             await client.send_agent_request("hello")
+        agent_calls = [
+            c for c in client._gateway.send_request.await_args_list
+            if c.kwargs.get("method") == "agent"
+        ]
+        assert len(agent_calls) == 1
 
     @pytest.mark.asyncio
     async def test_missing_run_id_raises(self) -> None:
@@ -521,7 +528,8 @@ class TestSendAgentRequest:
 
 class TestStreamAgentRequest:
     @pytest.mark.asyncio
-    async def test_connection_error_propagates(self) -> None:
+    async def test_connection_error_propagates(self, monkeypatch) -> None:
+        monkeypatch.setattr(_gateway_client, "AGENT_RETRY_RECONNECT_SECONDS", 0.01)
         client = OpenClawGatewayClient("localhost", 1, None)
         client._gateway.send_request = AsyncMock(  # type: ignore[attr-defined]
             side_effect=GatewayConnectionError("Not connected to Gateway"),
@@ -769,3 +777,75 @@ class TestPresence:
         client._handle_presence_event({"payload": {}})
 
         assert client.presence == {"clients": ["existing"]}
+
+
+class TestRetryAcrossReconnect:
+    """An agent request that hits a dropped connection is resent once."""
+
+    @staticmethod
+    def _client(side_effect) -> OpenClawGatewayClient:
+        client = OpenClawGatewayClient("localhost", 1, None, agent_id="voice")
+        client._gateway.send_request = AsyncMock(side_effect=side_effect)  # type: ignore[attr-defined]
+        return client
+
+    @pytest.mark.asyncio
+    async def test_resends_with_same_idempotency_key_after_reconnect(self) -> None:
+        client = self._client(
+            [GatewayConnectionError("Connection lost"), {"payload": {"runId": "r1"}}]
+        )
+        client._gateway._connected_event.set()  # reconnected
+
+        run = await client.begin_agent_run("hello", "key-1")
+
+        assert run.run_id == "r1"
+        calls = client._gateway.send_request.await_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs["params"]["idempotencyKey"] == "key-1"
+        assert calls[1].kwargs["params"]["idempotencyKey"] == "key-1"
+
+    @pytest.mark.asyncio
+    async def test_waits_for_reconnect_before_resending(self, monkeypatch) -> None:
+        monkeypatch.setattr(_gateway_client, "AGENT_RETRY_RECONNECT_SECONDS", 2)
+        client = self._client(
+            [GatewayConnectionError("Connection lost"), {"payload": {"runId": "r1"}}]
+        )
+
+        async def reconnect_later() -> None:
+            await asyncio.sleep(0.05)
+            assert client._gateway.send_request.await_count == 1
+            client._gateway._connected_event.set()
+
+        asyncio.get_running_loop().create_task(reconnect_later())
+        run = await client.begin_agent_run("hello")
+        assert run.run_id == "r1"
+
+    @pytest.mark.asyncio
+    async def test_no_retry_after_fatal_error(self) -> None:
+        client = self._client([GatewayConnectionError("Connection lost")])
+        client._gateway._fatal_error = _exceptions.GatewayAuthenticationError("bad token")
+
+        with pytest.raises(GatewayConnectionError):
+            await client.begin_agent_run("hello")
+        assert client._gateway.send_request.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_auth_errors_are_not_retried(self) -> None:
+        client = self._client([_exceptions.GatewayAuthenticationError("bad token")])
+        client._gateway._connected_event.set()
+
+        with pytest.raises(_exceptions.GatewayAuthenticationError):
+            await client.begin_agent_run("hello")
+        assert client._gateway.send_request.await_count == 1
+
+
+def test_connection_loss_fails_pending_requests() -> None:
+    protocol = _gateway.GatewayProtocol("localhost", 1, None)
+    loop = asyncio.new_event_loop()
+    try:
+        future = loop.create_future()
+        protocol._pending_requests["req-1"] = future
+        protocol._fail_pending_requests("Connection lost")
+        assert type(future.exception()).__name__ == "GatewayConnectionError"
+        assert protocol._pending_requests == {}
+    finally:
+        loop.close()
