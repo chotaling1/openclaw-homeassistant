@@ -60,8 +60,10 @@ through your smart-home voice assistant.
 **Conversation**
 - **Assist conversation agent** — drop-in agent for any Home Assistant voice
   pipeline or the Assist text box.
-- **Streaming responses** — streams partial output on HA versions that support it,
-  with automatic fallback to buffered responses on older versions.
+- **Streaming responses** — the reply streams into Home Assistant's chat log as
+  the agent writes it. The Assist text box shows it live, and voice pipelines
+  with a streaming TTS engine (Home Assistant Cloud, ElevenLabs, Wyoming/Piper)
+  start speaking before the agent finishes.
 - **Multi-turn voice** — when the agent asks a follow-up question, the satellite's
   mic stays open so you can answer without repeating the wake word. Automatic, no
   setup. [Details ›](#multi-turn-voice)
@@ -124,9 +126,8 @@ data:
 
 ## Requirements
 
-- **Home Assistant 2024.1.0 or later.** Streaming and multi-turn voice use newer
-  Assist APIs and degrade gracefully on older versions; **proactive voice** needs
-  an `assist_satellite` entity (e.g. Home Assistant Voice PE) on a recent HA.
+- **Home Assistant 2025.6.0 or later.** **Proactive voice** needs an
+  `assist_satellite` entity (e.g. Home Assistant Voice PE).
 - A configured [OpenClaw](https://openclaw.ai/) install with the **Gateway running**
   (local or remote).
 - A **Gateway token** (required since OpenClaw 2026.2.13+).

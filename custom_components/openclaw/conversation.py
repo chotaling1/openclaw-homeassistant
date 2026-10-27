@@ -1,7 +1,6 @@
 """Conversation entity for OpenClaw integration."""
 
 import asyncio
-import dataclasses
 import logging
 from typing import Any, AsyncIterator
 
@@ -42,7 +41,12 @@ from .exceptions import (
     GatewayTimeoutError,
 )
 from .gateway_client import AgentRun, OpenClawGatewayClient
-from .text import response_expects_followup, strip_emojis, trim_tts_text
+from .text import (
+    SpeechFilter,
+    response_expects_followup,
+    strip_emojis,
+    trim_tts_text,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,20 +91,6 @@ def _log_error_phrase(err: Exception) -> str:
     return _UNEXPECTED_ERROR_PHRASE
 
 
-def _set_continue_conversation(
-    result: conversation.ConversationResult, value: bool
-) -> None:
-    """Best-effort set of continue_conversation on HA versions that support it.
-
-    Some HA versions expose ConversationResult as a frozen dataclass; tolerate
-    both the "attribute not supported" and "frozen instance" cases as no-ops.
-    """
-    try:
-        result.continue_conversation = value
-    except (AttributeError, dataclasses.FrozenInstanceError):
-        pass
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -118,7 +108,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
     _attr_has_entity_name = True
     _attr_name = "OpenClaw"
     _attr_supported_languages = "*"
-    _attr_supports_streaming = False
+    _attr_supports_streaming = True
 
     def __init__(
         self, config_entry: ConfigEntry, gateway_client: OpenClawGatewayClient
@@ -127,7 +117,6 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         self._config_entry = config_entry
         self._gateway_client = gateway_client
         self._attr_unique_id = config_entry.entry_id
-        self._attr_supports_streaming = self._supports_streaming_result()
         # Runs detached past the grace period, reporting back via announce.
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -211,24 +200,6 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
                 "Unexpected error announcing proactive message on %s", satellite
             )
 
-    @staticmethod
-    def _supports_streaming_result() -> bool:
-        """Return whether the HA conversation result supports streaming."""
-        if hasattr(conversation, "StreamingConversationResult"):
-            return True
-        result_cls = getattr(conversation, "ConversationResult", None)
-        if result_cls is None:
-            return False
-        annotations = getattr(result_cls, "__annotations__", {})
-        if "response_stream" in annotations:
-            return True
-        if hasattr(result_cls, "response_stream"):
-            return True
-        slots = getattr(result_cls, "__slots__", ())
-        if isinstance(slots, str):
-            return slots == "response_stream"
-        return "response_stream" in slots
-
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device info for the gateway."""
@@ -277,97 +248,39 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Handle user message."""
+        """Handle a user message by streaming the agent's reply into the chat log.
+
+        Deltas added through ``chat_log.async_add_delta_content_stream`` are
+        what Home Assistant's pipeline forwards to a streaming-capable TTS
+        engine, so speech can start before the agent finishes.
+        """
         _LOGGER.debug(
             "Processing message (%d characters; conversation_id: %s)",
             len(user_input.text),
             user_input.conversation_id,
         )
-
-        # Extract user message
-        user_message = user_input.text
+        config = self._config
 
         try:
-            config = self._config
             if config.get(CONF_BACKGROUND_ENABLED, DEFAULT_BACKGROUND_ENABLED):
-                return await self._handle_with_grace(
-                    user_input, chat_log, user_message, config
+                agent_run = await self._gateway_client.begin_agent_run(
+                    user_input.text
                 )
-
-            streaming_result = self._build_streaming_result(
-                user_input, chat_log, user_message
-            )
-            if streaming_result is not None:
-                return streaming_result
-
-            response_text = await self._gateway_client.send_agent_request(
-                user_message
-            )
-            return self._build_plain_result(user_input, chat_log, response_text)
-
+                grace = config.get(CONF_BACKGROUND_GRACE, DEFAULT_BACKGROUND_GRACE)
+                try:
+                    first_chunk = await agent_run.get_chunk(grace)
+                except asyncio.TimeoutError:
+                    return self._defer_to_background(
+                        user_input, chat_log, agent_run, config
+                    )
+                chunks = self._resume_stream(agent_run, first_chunk)
+            else:
+                chunks = self._gateway_client.stream_agent_request(user_input.text)
         except Exception as err:  # pylint: disable=broad-except
-            return self._create_error_result(
-                user_input, _log_error_phrase(err), chat_log
-            )
+            return self._reply(user_input, chat_log, _log_error_phrase(err))
 
-    def _build_plain_result(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        response_text: str,
-    ) -> conversation.ConversationResult:
-        """Build a completed (non-streaming) conversation result."""
-        intent_response = intent.IntentResponse(language=user_input.language)
-        self._finalize_response(
-            user_input, chat_log, response_text, intent_response
-        )
-        result = conversation.ConversationResult(
-            response=intent_response,
-            conversation_id=user_input.conversation_id,
-        )
-        _set_continue_conversation(
-            result, response_expects_followup(response_text)
-        )
-        return result
-
-    async def _handle_with_grace(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        user_message: str,
-        config: dict[str, Any],
-    ) -> conversation.ConversationResult:
-        """Race the agent run against the grace period.
-
-        First content within the grace period answers inline exactly as
-        before; a silent run is detached to a background task that announces
-        its result on the originating satellite when it finishes.
-        """
-        grace = config.get(CONF_BACKGROUND_GRACE, DEFAULT_BACKGROUND_GRACE)
-        agent_run = await self._gateway_client.begin_agent_run(user_message)
-
-        try:
-            first_chunk = await agent_run.get_chunk(grace)
-        except asyncio.TimeoutError:
-            return self._defer_to_background(
-                user_input, chat_log, agent_run, config
-            )
-
-        streaming_result = self._build_streaming_result(
-            user_input,
-            chat_log,
-            user_message,
-            chunk_source=self._resume_stream(agent_run, first_chunk),
-        )
-        if streaming_result is not None:
-            return streaming_result
-
-        # No streaming support: drain to completion and answer plainly.
-        chunks = [first_chunk] if first_chunk else []
-        async for chunk in self._gateway_client.stream_run(agent_run):
-            chunks.append(chunk)
-        response_text = agent_run.get_response() or "".join(chunks)
-        return self._build_plain_result(user_input, chat_log, response_text)
+        speech = await self._stream_into_chat_log(user_input, chat_log, chunks)
+        return self._result(user_input, chat_log, speech)
 
     async def _resume_stream(
         self, agent_run: AgentRun, first_chunk: str | None
@@ -377,6 +290,88 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
             yield first_chunk
         async for chunk in self._gateway_client.stream_run(agent_run):
             yield chunk
+
+    async def _stream_into_chat_log(
+        self,
+        user_input: conversation.ConversationInput,
+        chat_log: conversation.ChatLog,
+        chunks: AsyncIterator[str],
+    ) -> str:
+        """Feed agent chunks to the chat log as assistant deltas.
+
+        Returns the text that was streamed (what TTS speaks). A failure before
+        any content streams the friendly error phrase instead; a failure after
+        content has started keeps what was said.
+        """
+        config = self._config
+        speech_filter = SpeechFilter(
+            strip=config.get(CONF_STRIP_EMOJIS, DEFAULT_STRIP_EMOJIS),
+            max_chars=config.get(CONF_TTS_MAX_CHARS, DEFAULT_TTS_MAX_CHARS),
+        )
+        spoken: list[str] = []
+
+        async def deltas() -> AsyncIterator[dict[str, Any]]:
+            yield {"role": "assistant"}
+            try:
+                async for chunk in chunks:
+                    text = speech_filter.feed(chunk)
+                    if text:
+                        spoken.append(text)
+                        yield {"content": text}
+                    if speech_filter.done:
+                        break
+            except Exception as err:  # pylint: disable=broad-except
+                phrase = _log_error_phrase(err)
+                if not spoken:
+                    spoken.append(phrase)
+                    yield {"content": phrase}
+            finally:
+                await _aclose(chunks)
+
+        async for _content in chat_log.async_add_delta_content_stream(
+            user_input.agent_id, deltas()
+        ):
+            pass
+        if not spoken:
+            # The delta stream drops an empty message; record the silent reply
+            # so the chat log still ends with the assistant's turn.
+            chat_log.async_add_assistant_content_without_tools(
+                conversation.AssistantContent(agent_id=user_input.agent_id, content="")
+            )
+        return "".join(spoken)
+
+    def _reply(
+        self,
+        user_input: conversation.ConversationInput,
+        chat_log: conversation.ChatLog,
+        text: str,
+    ) -> conversation.ConversationResult:
+        """Answer with a complete (non-streamed) text: errors, holding phrase."""
+        config = self._config
+        if config.get(CONF_STRIP_EMOJIS, DEFAULT_STRIP_EMOJIS):
+            text = strip_emojis(text)
+        text = trim_tts_text(
+            text, config.get(CONF_TTS_MAX_CHARS, DEFAULT_TTS_MAX_CHARS)
+        )
+        chat_log.async_add_assistant_content_without_tools(
+            conversation.AssistantContent(agent_id=user_input.agent_id, content=text)
+        )
+        return self._result(user_input, chat_log, text)
+
+    @staticmethod
+    def _result(
+        user_input: conversation.ConversationInput,
+        chat_log: conversation.ChatLog,
+        speech: str,
+    ) -> conversation.ConversationResult:
+        """Build the result HA returns to the caller and the pipeline."""
+        intent_response = intent.IntentResponse(language=user_input.language)
+        intent_response.async_set_speech(speech)
+        return conversation.ConversationResult(
+            response=intent_response,
+            conversation_id=chat_log.conversation_id,
+            continue_conversation=response_expects_followup(speech),
+        )
 
     def _defer_to_background(
         self,
@@ -393,22 +388,14 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         report = self._background_report(
             agent_run, getattr(user_input, "device_id", None)
         )
-        create_background_task = getattr(
-            self.hass, "async_create_background_task", None
+        task = self.hass.async_create_background_task(
+            report, name=f"openclaw_background_{agent_run.run_id}"
         )
-        if create_background_task is not None:
-            task = create_background_task(
-                report, name=f"openclaw_background_{agent_run.run_id}"
-            )
-        else:
-            # Older HA cores predate background tasks; a plain task still
-            # completes the report, it just isn't shielded from shutdown.
-            task = self.hass.async_create_task(report)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
         holding_phrase = config.get(CONF_HOLDING_PHRASE, DEFAULT_HOLDING_PHRASE)
-        return self._build_plain_result(user_input, chat_log, holding_phrase)
+        return self._reply(user_input, chat_log, holding_phrase)
 
     async def _background_report(
         self, agent_run: AgentRun, device_id: str | None
@@ -472,159 +459,9 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         config = self._config
         return config.get(CONF_PROACTIVE_SATELLITE)
 
-    def _build_streaming_result(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        user_message: str,
-        chunk_source: AsyncIterator[str] | None = None,
-    ) -> conversation.ConversationResult | None:
-        """Build a streaming conversation result when supported."""
-        if not self._supports_streaming_result():
-            return None
 
-        intent_response = intent.IntentResponse(language=user_input.language)
-        result = conversation.ConversationResult(
-            response=intent_response,
-            conversation_id=user_input.conversation_id,
-        )
-        # Shared reference so _stream_response's finally block can mutate
-        # whichever object actually gets returned below — including the
-        # replacement built by the StreamingConversationResult fallback.
-        result_ref: list[conversation.ConversationResult] = [result]
-        response_stream = self._stream_response(
-            user_input,
-            chat_log,
-            user_message,
-            intent_response,
-            result_ref,
-            chunk_source,
-        )
-
-        try:
-            setattr(result, "response_stream", response_stream)
-            return result
-        except AttributeError:
-            pass
-
-        streaming_cls = getattr(conversation, "StreamingConversationResult", None)
-        if streaming_cls is None:
-            return None
-
-        init_attempts = [
-            {
-                "response": intent_response,
-                "conversation_id": user_input.conversation_id,
-                "response_stream": response_stream,
-            },
-            {
-                "response": intent_response,
-                "conversation_id": user_input.conversation_id,
-                "stream": response_stream,
-            },
-            {
-                "response": intent_response,
-                "conversation_id": user_input.conversation_id,
-                "async_stream": response_stream,
-            },
-        ]
-        for kwargs in init_attempts:
-            try:
-                streamed = streaming_cls(**kwargs)
-            except TypeError:
-                continue
-            result_ref[0] = streamed
-            return streamed
-
-        try:
-            streamed = streaming_cls(
-                intent_response, user_input.conversation_id, response_stream
-            )
-        except TypeError:
-            _LOGGER.debug(
-                "StreamingConversationResult signature not supported by this HA version"
-            )
-            return None
-        result_ref[0] = streamed
-        return streamed
-
-    async def _stream_response(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        user_message: str,
-        intent_response: intent.IntentResponse,
-        result_ref: list[conversation.ConversationResult],
-        chunk_source: AsyncIterator[str] | None = None,
-    ) -> AsyncIterator[str]:
-        """Stream response chunks from the Gateway."""
-        if chunk_source is None:
-            chunk_source = self._gateway_client.stream_agent_request(
-                user_message
-            )
-        chunks: list[str] = []
-        had_content = False
-        try:
-            async for chunk in chunk_source:
-                if chunk:
-                    chunks.append(chunk)
-                    had_content = True
-                    yield chunk
-        except Exception as err:  # pylint: disable=broad-except
-            message = _log_error_phrase(err)
-            if not had_content:
-                chunks = [message]
-                yield message
-        finally:
-            response_text = "".join(chunks)
-            self._finalize_response(
-                user_input, chat_log, response_text, intent_response
-            )
-            _set_continue_conversation(
-                result_ref[0], response_expects_followup(response_text)
-            )
-
-    def _finalize_response(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        response_text: str,
-        intent_response: intent.IntentResponse,
-    ) -> None:
-        """Add response to chat log and set TTS speech."""
-        chat_log.async_add_assistant_content_without_tools(
-            conversation.AssistantContent(
-                agent_id=user_input.agent_id,
-                content=response_text,
-            )
-        )
-
-        config = self._config
-        should_strip = config.get(CONF_STRIP_EMOJIS, DEFAULT_STRIP_EMOJIS)
-        speech_text = (
-            strip_emojis(response_text) if should_strip else response_text
-        )
-        max_chars = config.get(CONF_TTS_MAX_CHARS, DEFAULT_TTS_MAX_CHARS)
-        speech_text = trim_tts_text(speech_text, max_chars)
-        intent_response.async_set_speech(speech_text)
-
-    def _create_error_result(
-        self,
-        user_input: conversation.ConversationInput,
-        message: str,
-        chat_log: conversation.ChatLog | None = None,
-    ) -> conversation.ConversationResult:
-        """Create an error result."""
-        if chat_log is not None:
-            chat_log.async_add_assistant_content_without_tools(
-                conversation.AssistantContent(
-                    agent_id=user_input.agent_id,
-                    content=message,
-                )
-            )
-        intent_response = intent.IntentResponse(language=user_input.language)
-        intent_response.async_set_speech(message)
-        return conversation.ConversationResult(
-            response=intent_response,
-            conversation_id=user_input.conversation_id,
-        )
+async def _aclose(iterator: AsyncIterator[str]) -> None:
+    """Close an async generator so its cleanup (run-tracker removal) runs now."""
+    aclose = getattr(iterator, "aclose", None)
+    if aclose is not None:
+        await aclose()
