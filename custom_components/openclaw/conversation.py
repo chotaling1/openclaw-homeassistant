@@ -47,6 +47,46 @@ from .text import response_expects_followup, strip_emojis, trim_tts_text
 _LOGGER = logging.getLogger(__name__)
 
 
+# Spoken reply for each failure, most specific class first.
+_ERROR_PHRASES: tuple[tuple[type[Exception], str], ...] = (
+    (
+        GatewayAuthenticationError,
+        "The gateway token is no longer valid. Please update it in "
+        "Settings, Devices and Services, OpenClaw, Configure.",
+    ),
+    (
+        GatewayConnectionError,
+        "I'm having trouble connecting to the Gateway. "
+        "Please check your configuration.",
+    ),
+    (GatewayTimeoutError, "The response took too long. Please try again."),
+    (
+        AgentExecutionError,
+        "I encountered an error while processing your request. "
+        "Please try again.",
+    ),
+)
+_UNEXPECTED_ERROR_PHRASE = "An unexpected error occurred. Please try again."
+
+
+def _log_error_phrase(err: Exception) -> str:
+    """Log a request failure and return the phrase to speak for it."""
+    if isinstance(err, GatewayTimeoutError):
+        _LOGGER.warning("Gateway timeout: %s", err)
+    elif isinstance(err, GatewayAuthenticationError):
+        _LOGGER.error("Gateway authentication error: %s", err)
+    elif isinstance(err, GatewayConnectionError):
+        _LOGGER.error("Gateway connection error: %s", err)
+    elif isinstance(err, AgentExecutionError):
+        _LOGGER.error("Agent execution error: %s", err)
+    else:
+        _LOGGER.error("Unexpected error handling message", exc_info=err)
+    for err_type, phrase in _ERROR_PHRASES:
+        if isinstance(err, err_type):
+            return phrase
+    return _UNEXPECTED_ERROR_PHRASE
+
+
 def _set_continue_conversation(
     result: conversation.ConversationResult, value: bool
 ) -> None:
@@ -91,10 +131,15 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         # Runs detached past the grace period, reporting back via announce.
         self._background_tasks: set[asyncio.Task] = set()
 
+    @property
+    def _config(self) -> dict[str, Any]:
+        """Return the entry's settings, options overriding initial data."""
+        return {**self._config_entry.data, **self._config_entry.options}
+
     async def async_added_to_hass(self) -> None:
         """Register the proactive-voice handler when enabled."""
         await super().async_added_to_hass()
-        config = {**self._config_entry.data, **self._config_entry.options}
+        config = self._config
         if config.get(CONF_PROACTIVE_ENABLED, DEFAULT_PROACTIVE_ENABLED):
             self._gateway_client.set_proactive_handler(
                 self._on_proactive_message
@@ -120,7 +165,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         Defaults to the configured proactive satellite; background reports
         pass the originating satellite explicitly.
         """
-        config = {**self._config_entry.data, **self._config_entry.options}
+        config = self._config
         if satellite is None:
             satellite = config.get(CONF_PROACTIVE_SATELLITE)
         if not satellite:
@@ -197,7 +242,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes for diagnostics."""
-        data = {**self._config_entry.data, **self._config_entry.options}
+        data = self._config
         return {
             "host": data.get("host"),
             "port": data.get("port"),
@@ -243,7 +288,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         user_message = user_input.text
 
         try:
-            config = {**self._config_entry.data, **self._config_entry.options}
+            config = self._config
             if config.get(CONF_BACKGROUND_ENABLED, DEFAULT_BACKGROUND_ENABLED):
                 return await self._handle_with_grace(
                     user_input, chat_log, user_message, config
@@ -260,45 +305,9 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
             )
             return self._build_plain_result(user_input, chat_log, response_text)
 
-        except GatewayAuthenticationError as err:
-            _LOGGER.error("Gateway authentication error: %s", err)
-            return self._create_error_result(
-                user_input,
-                "The gateway token is no longer valid. Please update it in "
-                "Settings, Devices and Services, OpenClaw, Configure.",
-                chat_log,
-            )
-
-        except GatewayConnectionError as err:
-            _LOGGER.error("Gateway connection error: %s", err)
-            return self._create_error_result(
-                user_input,
-                "I'm having trouble connecting to the Gateway. Please check your configuration.",
-                chat_log,
-            )
-
-        except GatewayTimeoutError as err:
-            _LOGGER.warning("Gateway timeout: %s", err)
-            return self._create_error_result(
-                user_input,
-                "The response took too long. Please try again.",
-                chat_log,
-            )
-
-        except AgentExecutionError as err:
-            _LOGGER.error("Agent execution error: %s", err)
-            return self._create_error_result(
-                user_input,
-                "I encountered an error while processing your request. Please try again.",
-                chat_log,
-            )
-
         except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error in message handling")
             return self._create_error_result(
-                user_input,
-                "An unexpected error occurred. Please try again.",
-                chat_log,
+                user_input, _log_error_phrase(err), chat_log
             )
 
     def _build_plain_result(
@@ -460,7 +469,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
                     device_id,
                     exc_info=True,
                 )
-        config = {**self._config_entry.data, **self._config_entry.options}
+        config = self._config
         return config.get(CONF_PROACTIVE_SATELLITE)
 
     def _build_streaming_result(
@@ -561,43 +570,9 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
                     chunks.append(chunk)
                     had_content = True
                     yield chunk
-        except GatewayAuthenticationError as err:
-            _LOGGER.error("Gateway authentication error: %s", err)
+        except Exception as err:  # pylint: disable=broad-except
+            message = _log_error_phrase(err)
             if not had_content:
-                message = (
-                    "The gateway token is no longer valid. Please update it in "
-                    "Settings, Devices and Services, OpenClaw, Configure."
-                )
-                chunks = [message]
-                yield message
-        except GatewayConnectionError as err:
-            _LOGGER.error("Gateway connection error: %s", err)
-            if not had_content:
-                message = (
-                    "I'm having trouble connecting to the Gateway. "
-                    "Please check your configuration."
-                )
-                chunks = [message]
-                yield message
-        except GatewayTimeoutError as err:
-            _LOGGER.warning("Gateway timeout: %s", err)
-            if not had_content:
-                message = "The response took too long. Please try again."
-                chunks = [message]
-                yield message
-        except AgentExecutionError as err:
-            _LOGGER.error("Agent execution error: %s", err)
-            if not had_content:
-                message = (
-                    "I encountered an error while processing your request. "
-                    "Please try again."
-                )
-                chunks = [message]
-                yield message
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error in streaming response")
-            if not had_content:
-                message = "An unexpected error occurred. Please try again."
                 chunks = [message]
                 yield message
         finally:
@@ -624,7 +599,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
             )
         )
 
-        config = {**self._config_entry.data, **self._config_entry.options}
+        config = self._config
         should_strip = config.get(CONF_STRIP_EMOJIS, DEFAULT_STRIP_EMOJIS)
         speech_text = (
             strip_emojis(response_text) if should_strip else response_text
