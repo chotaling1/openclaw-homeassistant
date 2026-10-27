@@ -84,7 +84,7 @@ class FakeGatewayProtocol:
     # --- requests ---------------------------------------------------------
     async def send_request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 30.0) -> dict[str, Any]:
         params = params or {}
-        self.requests.append((method, params))
+        self.requests.append((method, dict(params)))
         if method == "agent":
             if self.fail_next_agent is not None:
                 err, self.fail_next_agent = self.fail_next_agent, None

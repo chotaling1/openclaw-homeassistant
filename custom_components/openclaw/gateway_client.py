@@ -190,6 +190,7 @@ class OpenClawGatewayClient:
         self._model = model
         self._thinking = thinking
         self._agent_runs: dict[str, AgentRun] = {}
+        self._extra_prompt_supported = True
 
         # Proactive voice: callback invoked with agent-initiated assistant text,
         # and a timestamp of the most recent local agent activity used to
@@ -315,28 +316,48 @@ class OpenClawGatewayClient:
                 self._resolved_agent_id = default_id.strip()
 
     async def _start_agent_run(
-        self, message: str, idempotency_key: str, *, stream: bool = False
+        self,
+        message: str,
+        idempotency_key: str,
+        *,
+        stream: bool = False,
+        extra_system_prompt: str | None = None,
     ) -> AgentRun:
         """Send the agent request and return a tracked AgentRun."""
         await self._ensure_agent_scope()
         # Mark local activity so proactive voice suppresses the session echo.
         self._last_local_turn = time.monotonic()
-        options: dict[str, Any] = {}
+        params: dict[str, Any] = {
+            "message": message,
+            "sessionKey": self._effective_session_key,
+            "idempotencyKey": idempotency_key,
+        }
         if self._model:
-            options["model"] = self._model
+            params["model"] = self._model
         if self._thinking:
-            options["thinking"] = self._thinking
+            params["thinking"] = self._thinking
+        if extra_system_prompt and self._extra_prompt_supported:
+            params["extraSystemPrompt"] = extra_system_prompt
 
-        response = await self._gateway.send_request(
-            method="agent",
-            params={
-                "message": message,
-                "sessionKey": self._effective_session_key,
-                "idempotencyKey": idempotency_key,
-                **options,
-            },
-            timeout=10.0,
-        )
+        try:
+            response = await self._gateway.send_request(
+                method="agent", params=params, timeout=10.0
+            )
+        except ProtocolError as err:
+            if "extraSystemPrompt" not in params:
+                raise
+            # A gateway that rejects the field must not break voice: drop the
+            # context for this connection's lifetime and resend the request.
+            _LOGGER.warning(
+                "Gateway rejected extraSystemPrompt (%s); sending requests "
+                "without Home Assistant context",
+                err,
+            )
+            self._extra_prompt_supported = False
+            del params["extraSystemPrompt"]
+            response = await self._gateway.send_request(
+                method="agent", params=params, timeout=10.0
+            )
 
         payload = response.get("payload", {})
         run_id = payload.get("runId")
@@ -427,7 +448,11 @@ class OpenClawGatewayClient:
             raise AgentExecutionError(str(err)) from err
 
     async def begin_agent_run(
-        self, message: str, idempotency_key: str | None = None
+        self,
+        message: str,
+        idempotency_key: str | None = None,
+        *,
+        extra_system_prompt: str | None = None,
     ) -> AgentRun:
         """Start an agent run without consuming it.
 
@@ -439,7 +464,12 @@ class OpenClawGatewayClient:
         if idempotency_key is None:
             idempotency_key = str(uuid.uuid4())
         _LOGGER.debug("Beginning agent run with key: %s", idempotency_key)
-        return await self._start_agent_run(message, idempotency_key, stream=True)
+        return await self._start_agent_run(
+            message,
+            idempotency_key,
+            stream=True,
+            extra_system_prompt=extra_system_prompt,
+        )
 
     async def wait_run(self, agent_run: AgentRun, timeout: float) -> str:
         """Wait for an already-started run to complete and return its text.
@@ -500,7 +530,11 @@ class OpenClawGatewayClient:
             self._agent_runs.pop(agent_run.run_id, None)
 
     async def stream_agent_request(
-        self, message: str, idempotency_key: str | None = None
+        self,
+        message: str,
+        idempotency_key: str | None = None,
+        *,
+        extra_system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         """
         Send agent request and stream response chunks.
@@ -517,7 +551,9 @@ class OpenClawGatewayClient:
             AgentExecutionError: If agent execution fails
         """
         try:
-            agent_run = await self.begin_agent_run(message, idempotency_key)
+            agent_run = await self.begin_agent_run(
+                message, idempotency_key, extra_system_prompt=extra_system_prompt
+            )
 
             async for chunk in self.stream_run(agent_run):
                 yield chunk
@@ -692,6 +728,8 @@ class OpenClawGatewayClient:
 
     def _on_gateway_connected(self) -> None:
         """Re-issue the session subscription after every (re)connect."""
+        # A reconnect may be to an upgraded gateway; try the context again.
+        self._extra_prompt_supported = True
         if not self._agent_id:
             self._resolved_agent_id = None
         if self._proactive_callback is not None:

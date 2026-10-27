@@ -22,6 +22,7 @@ from .const import (
     CONF_PROACTIVE_ENABLED,
     CONF_PROACTIVE_MODE,
     CONF_PROACTIVE_SATELLITE,
+    CONF_SEND_HA_CONTEXT,
     CONF_STRIP_EMOJIS,
     CONF_TTS_MAX_CHARS,
     DEFAULT_BACKGROUND_ENABLED,
@@ -29,11 +30,13 @@ from .const import (
     DEFAULT_HOLDING_PHRASE,
     DEFAULT_PROACTIVE_ENABLED,
     DEFAULT_PROACTIVE_MODE,
+    DEFAULT_SEND_HA_CONTEXT,
     DEFAULT_STRIP_EMOJIS,
     DEFAULT_TTS_MAX_CHARS,
     DOMAIN,
     PROACTIVE_MODE_START_CONVERSATION,
 )
+from .context import async_build_extra_system_prompt
 from .exceptions import (
     AgentExecutionError,
     GatewayAuthenticationError,
@@ -262,9 +265,16 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         config = self._config
 
         try:
+            extra_system_prompt = await async_build_extra_system_prompt(
+                self.hass,
+                user_input,
+                include_ha_context=config.get(
+                    CONF_SEND_HA_CONTEXT, DEFAULT_SEND_HA_CONTEXT
+                ),
+            )
             if config.get(CONF_BACKGROUND_ENABLED, DEFAULT_BACKGROUND_ENABLED):
                 agent_run = await self._gateway_client.begin_agent_run(
-                    user_input.text
+                    user_input.text, extra_system_prompt=extra_system_prompt
                 )
                 grace = config.get(CONF_BACKGROUND_GRACE, DEFAULT_BACKGROUND_GRACE)
                 try:
@@ -275,7 +285,9 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
                     )
                 chunks = self._resume_stream(agent_run, first_chunk)
             else:
-                chunks = self._gateway_client.stream_agent_request(user_input.text)
+                chunks = self._gateway_client.stream_agent_request(
+                    user_input.text, extra_system_prompt=extra_system_prompt
+                )
         except Exception as err:  # pylint: disable=broad-except
             return self._reply(user_input, chat_log, _log_error_phrase(err))
 

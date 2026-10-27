@@ -64,6 +64,11 @@ through your smart-home voice assistant.
   the agent writes it. The Assist text box shows it live, and voice pipelines
   with a streaming TTS engine (Home Assistant Cloud, ElevenLabs, Wyoming/Piper)
   start speaking before the agent finishes.
+- **Room-aware requests** — each request tells the agent which satellite and
+  area it came from (and the HA user, for typed requests), so "turn off the
+  lights" can mean *this* room. Context that automations pass to
+  `assist_satellite.start_conversation` (`extra_system_prompt`) reaches the
+  agent too.
 - **Multi-turn voice** — when the agent asks a follow-up question, the satellite's
   mic stays open so you can answer without repeating the wake word. Automatic, no
   setup. [Details ›](#multi-turn-voice)
@@ -228,6 +233,7 @@ All of these are editable any time via **Settings → Devices & Services → Ope
 | **Thinking mode** | gateway default | `off` / `low` / `medium` / `high` |
 | **Strip emojis from TTS** | On | Remove emojis from spoken output |
 | **TTS max characters** | `0` (no limit) | Trim long spoken replies (0–2000) |
+| **Send room, device and user context** | On | Tell the agent which device/area a request came from and which HA user sent it (gateway `extraSystemPrompt`) |
 | **Background work** | On | Slow requests answer later via announce instead of timing out |
 | **Grace period** | `10` s | Silence before a request is deferred to background (3–60) |
 | **Holding phrase** | “On it — I’ll let you know when it’s done.” | Spoken when a request is deferred |
