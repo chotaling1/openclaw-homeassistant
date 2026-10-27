@@ -288,10 +288,14 @@ class OpenClawGatewayClient:
     @property
     def _effective_session_key(self) -> str:
         """Build the session key, prefixed with the selected agent ID."""
+        return self._scoped_session_key(self._session_key)
+
+    def _scoped_session_key(self, session_key: str) -> str:
+        """Prefix ``session_key`` with the selected agent ID, when known."""
         agent_id = self._agent_id or self._resolved_agent_id
         if agent_id:
-            return f"agent:{agent_id}:{self._session_key}"
-        return self._session_key
+            return f"agent:{agent_id}:{session_key}"
+        return session_key
 
     async def _ensure_agent_scope(self) -> None:
         """Resolve the gateway default agent for an unscoped session."""
@@ -322,14 +326,19 @@ class OpenClawGatewayClient:
         *,
         stream: bool = False,
         extra_system_prompt: str | None = None,
+        session_key: str | None = None,
     ) -> AgentRun:
-        """Send the agent request and return a tracked AgentRun."""
+        """Send the agent request and return a tracked AgentRun.
+
+        ``session_key`` overrides the configured session for this request only
+        (per-device sessions); it is scoped to the agent the same way.
+        """
         await self._ensure_agent_scope()
         # Mark local activity so proactive voice suppresses the session echo.
         self._last_local_turn = time.monotonic()
         params: dict[str, Any] = {
             "message": message,
-            "sessionKey": self._effective_session_key,
+            "sessionKey": self._scoped_session_key(session_key or self._session_key),
             "idempotencyKey": idempotency_key,
         }
         if self._model:
@@ -480,6 +489,7 @@ class OpenClawGatewayClient:
         idempotency_key: str | None = None,
         *,
         extra_system_prompt: str | None = None,
+        session_key: str | None = None,
     ) -> AgentRun:
         """Start an agent run without consuming it.
 
@@ -496,6 +506,7 @@ class OpenClawGatewayClient:
             idempotency_key,
             stream=True,
             extra_system_prompt=extra_system_prompt,
+            session_key=session_key,
         )
 
     async def wait_run(self, agent_run: AgentRun, timeout: float) -> str:
@@ -562,6 +573,7 @@ class OpenClawGatewayClient:
         idempotency_key: str | None = None,
         *,
         extra_system_prompt: str | None = None,
+        session_key: str | None = None,
     ) -> AsyncIterator[str]:
         """
         Send agent request and stream response chunks.
@@ -579,7 +591,10 @@ class OpenClawGatewayClient:
         """
         try:
             agent_run = await self.begin_agent_run(
-                message, idempotency_key, extra_system_prompt=extra_system_prompt
+                message,
+                idempotency_key,
+                extra_system_prompt=extra_system_prompt,
+                session_key=session_key,
             )
 
             async for chunk in self.stream_run(agent_run):

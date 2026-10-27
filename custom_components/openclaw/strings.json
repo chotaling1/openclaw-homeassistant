@@ -73,6 +73,7 @@
           "strip_emojis": "Strip emojis from TTS speech",
           "tts_max_chars": "TTS max characters (0 = no limit)",
           "send_ha_context": "Tell the agent the room, device and user each request comes from",
+          "session_per_device": "Separate session per satellite (each device gets its own conversation history)",
           "background_enabled": "Background work: answer slow requests via a later announcement instead of timing out",
           "background_grace": "Grace period (seconds of silence before deferring to background)",
           "holding_phrase": "Holding phrase spoken when a request is deferred",

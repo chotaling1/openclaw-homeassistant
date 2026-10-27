@@ -41,6 +41,8 @@ def load_conversation_module() -> ModuleType:
     intent_mod = _stub_module("homeassistant.helpers.intent")
     _stub_module("homeassistant.helpers")
     entity_platform_mod = _stub_module("homeassistant.helpers.entity_platform")
+    util_mod = _stub_module("homeassistant.util")
+    util_mod.slugify = lambda text: text.lower().replace(" ", "_")
     _stub_module("homeassistant.helpers.area_registry")
     _stub_module("homeassistant.helpers.device_registry")
     er_mod = _stub_module("homeassistant.helpers.entity_registry")
