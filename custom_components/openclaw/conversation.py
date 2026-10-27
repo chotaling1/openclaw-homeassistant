@@ -3,7 +3,6 @@
 import asyncio
 import dataclasses
 import logging
-import re
 from typing import Any, AsyncIterator
 
 from homeassistant.components import conversation
@@ -43,44 +42,9 @@ from .exceptions import (
     GatewayTimeoutError,
 )
 from .gateway_client import AgentRun, OpenClawGatewayClient
+from .text import response_expects_followup, strip_emojis, trim_tts_text
 
 _LOGGER = logging.getLogger(__name__)
-
-# Emoji pattern for removal from TTS
-EMOJI_PATTERN = re.compile(
-    "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport & map symbols
-    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-    "\U00002702-\U000027B0"  # dingbats
-    "\U000024C2-\U0001F251"
-    "]+",
-    flags=re.UNICODE,
-)
-
-
-def strip_emojis(text: str) -> str:
-    """Remove emojis from text for TTS."""
-    return EMOJI_PATTERN.sub("", text).strip()
-
-
-def trim_tts_text(text: str, max_chars: int) -> str:
-    """Trim TTS text to a max character limit."""
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-    if max_chars <= 3:
-        return text[:max_chars]
-    return text[: max_chars - 3].rstrip() + "..."
-
-
-def response_expects_followup(text: str) -> bool:
-    """Return True if the response looks like it asks a follow-up question.
-
-    Keeps the satellite mic open so the user can reply without re-triggering
-    the wake word. We treat any "?" in the reply as a follow-up cue.
-    """
-    return "?" in (text or "")
 
 
 def _set_continue_conversation(

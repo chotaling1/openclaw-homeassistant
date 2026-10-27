@@ -1,31 +1,13 @@
-"""Tests for emoji stripping functionality."""
-import re
+"""Tests for the TTS text helpers (custom_components/openclaw/text.py)."""
 
-import pytest
+import importlib.util
+from pathlib import Path
 
-# Try to import from conversation module, but if HA is unavailable (Windows
-# standalone mode), extract the pure functions directly from the source file.
-try:
-    from custom_components.openclaw.conversation import EMOJI_PATTERN, strip_emojis
-except ImportError:
-    # Standalone mode: define the same pattern and function locally.
-    # This is copied from custom_components/openclaw/conversation.py lines 23-38.
-    # The pattern and function are pure Python with no HA dependencies.
-    EMOJI_PATTERN = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-        "\U00002702-\U000027B0"  # dingbats
-        "\U000024C2-\U0001F251"
-        "]+",
-        flags=re.UNICODE,
-    )
-
-    def strip_emojis(text: str) -> str:
-        """Remove emojis from text for TTS."""
-        return EMOJI_PATTERN.sub("", text).strip()
+_PATH = Path(__file__).parent.parent / "custom_components" / "openclaw" / "text.py"
+_spec = importlib.util.spec_from_file_location("openclaw_text", _PATH)
+text = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(text)
+strip_emojis = text.strip_emojis
 
 
 class TestEmojiStripping:
@@ -37,3 +19,48 @@ class TestEmojiStripping:
 
     def test_plain_text_unchanged(self) -> None:
         assert strip_emojis("Plain text") == "Plain text"
+
+    def test_removes_supplemental_symbols_block(self) -> None:
+        # U+1F900-1F9FF was missing from the old pattern.
+        assert strip_emojis("Sure 🤔 let me check 🥳🧀") == "Sure let me check"
+
+    def test_removes_extended_a_block(self) -> None:
+        assert strip_emojis("Plants 🪴 watered") == "Plants watered"
+
+    def test_removes_dingbats_and_symbols(self) -> None:
+        assert strip_emojis("❤️ done ✅") == "done"
+        assert strip_emojis("Sunny ☀️ today ⭐") == "Sunny today"
+
+    def test_removes_zwj_sequences_whole(self) -> None:
+        assert strip_emojis("Family 👨‍👩‍👧 night") == "Family night"
+
+    def test_removes_flags(self) -> None:
+        assert strip_emojis("Go 🇺🇸 team") == "Go team"
+
+    def test_keycap_keeps_digit(self) -> None:
+        assert strip_emojis("Step 1️⃣ first") == "Step 1 first"
+
+    def test_no_space_left_before_punctuation(self) -> None:
+        assert strip_emojis("All done 🎉.") == "All done."
+        assert strip_emojis("Nice 👍, thanks") == "Nice, thanks"
+
+    def test_preserves_cjk_and_hangul(self) -> None:
+        assert strip_emojis("東京 is sunny") == "東京 is sunny"
+        assert strip_emojis("안녕하세요 👋") == "안녕하세요"
+
+    def test_preserves_ligatures_and_fullwidth(self) -> None:
+        assert strip_emojis("café ﬁ ligature") == "café ﬁ ligature"
+        assert strip_emojis("ＡＢＣ") == "ＡＢＣ"
+
+    def test_preserves_common_typography(self) -> None:
+        s = "It's 84°F — sunny… © ½ → done"
+        assert strip_emojis(s) == s
+
+    def test_does_not_collapse_spacing_without_emoji(self) -> None:
+        assert strip_emojis("a  b") == "a  b"
+
+
+def test_trim_tts_text() -> None:
+    assert text.trim_tts_text("short", 10) == "short"
+    assert text.trim_tts_text("1234567890", 0) == "1234567890"
+    assert text.trim_tts_text("1234567890", 6) == "123..."
