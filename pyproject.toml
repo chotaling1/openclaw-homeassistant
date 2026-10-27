@@ -13,6 +13,16 @@ test = [
     "voluptuous>=0.15.2",
     "websockets>=12.0",
 ]
+# Real-Home-Assistant tests in tests_ha/ (Python 3.14+, pins a HA release).
+# Run separately: the stub-based tests in tests/ replace homeassistant.* in
+# sys.modules and must not share a process with a real HA.
+test-ha = [
+    "pytest-homeassistant-custom-component",
+    "websockets>=12.0",
+    "gazetteer-matcher",
+    "hassil",
+    "home-assistant-intents",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
