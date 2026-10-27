@@ -1,5 +1,8 @@
 """Constants for the OpenClaw integration."""
 
+import json
+from pathlib import Path
+
 DOMAIN = "openclaw"
 
 # Configuration defaults
@@ -75,7 +78,22 @@ PROTOCOL_MAX_VERSION = 4
 # Client identification
 CLIENT_ID = "gateway-client"
 CLIENT_DISPLAY_NAME = "Home Assistant OpenClaw"
-CLIENT_VERSION = "1.0.0"
+
+
+def _manifest_version() -> str:
+    """Return the integration version from manifest.json."""
+    try:
+        manifest = json.loads(
+            (Path(__file__).parent / "manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return "0.0.0"
+    version = manifest.get("version")
+    return version if isinstance(version, str) and version else "0.0.0"
+
+
+# Reported to the gateway in the connect handshake and user agent.
+CLIENT_VERSION = _manifest_version()
 CLIENT_PLATFORM = "python"
 CLIENT_MODE = "backend"
 

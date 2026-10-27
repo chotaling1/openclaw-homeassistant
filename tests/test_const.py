@@ -58,3 +58,18 @@ class TestBackgroundWorkDefaults:
         assert _const.DEFAULT_HOLDING_PHRASE
         assert _const.BACKGROUND_ERROR_PHRASE
         assert _const.BACKGROUND_TIMEOUT_PHRASE
+
+
+def test_client_version_matches_manifest() -> None:
+    import json
+    from pathlib import Path
+
+    manifest = json.loads(
+        (
+            Path(__file__).parent.parent
+            / "custom_components"
+            / "openclaw"
+            / "manifest.json"
+        ).read_text()
+    )
+    assert _const.CLIENT_VERSION == manifest["version"]
