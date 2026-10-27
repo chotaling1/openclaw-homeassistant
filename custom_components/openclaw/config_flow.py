@@ -18,6 +18,7 @@ from .const import (
     CONF_BACKGROUND_ENABLED,
     CONF_BACKGROUND_GRACE,
     CONF_HOLDING_PHRASE,
+    CONF_SEND_HA_CONTEXT,
     CONF_MODEL,
     CONF_PROACTIVE_ENABLED,
     CONF_PROACTIVE_MODE,
@@ -31,6 +32,7 @@ from .const import (
     DEFAULT_BACKGROUND_ENABLED,
     DEFAULT_BACKGROUND_GRACE,
     DEFAULT_HOLDING_PHRASE,
+    DEFAULT_SEND_HA_CONTEXT,
     DEFAULT_HOST,
     DEFAULT_MODEL,
     DEFAULT_PORT,
@@ -566,6 +568,12 @@ class OpenClawOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_TTS_MAX_CHARS, DEFAULT_TTS_MAX_CHARS
                     ),
                 ): vol.All(int, vol.Range(min=0, max=2000)),
+                vol.Optional(
+                    CONF_SEND_HA_CONTEXT,
+                    default=current.get(
+                        CONF_SEND_HA_CONTEXT, DEFAULT_SEND_HA_CONTEXT
+                    ),
+                ): bool,
                 **_background_schema_fields(current),
                 **_proactive_schema_fields(current),
             }

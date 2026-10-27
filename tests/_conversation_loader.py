@@ -41,6 +41,8 @@ def load_conversation_module() -> ModuleType:
     intent_mod = _stub_module("homeassistant.helpers.intent")
     _stub_module("homeassistant.helpers")
     entity_platform_mod = _stub_module("homeassistant.helpers.entity_platform")
+    _stub_module("homeassistant.helpers.area_registry")
+    _stub_module("homeassistant.helpers.device_registry")
     er_mod = _stub_module("homeassistant.helpers.entity_registry")
     er_mod.async_get = lambda _hass: None
     er_mod.async_entries_for_device = lambda _registry, _device_id: []
