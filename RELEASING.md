@@ -16,6 +16,13 @@ pre-releases; beta releases should use a prerelease tag such as
    pytest
    ```
 
+   and, in a separate Python 3.14 environment, the real-Home-Assistant suite:
+
+   ```bash
+   python -m pip install -e '.[test-ha]'
+   pytest tests_ha
+   ```
+
 3. Commit and push the change to `main`, then wait for the GitHub Actions test
    workflow to pass.
 4. Publish a full GitHub Release whose tag is `v` followed by the manifest
