@@ -234,6 +234,7 @@ All of these are editable any time via **Settings → Devices & Services → Ope
 | **Strip emojis from TTS** | On | Remove emojis from spoken output |
 | **TTS max characters** | `0` (no limit) | Trim long spoken replies (0–2000) |
 | **Send room, device and user context** | On | Tell the agent which device/area a request came from and which HA user sent it (gateway `extraSystemPrompt`) |
+| **Separate session per satellite** | Off | Each device gets its own gateway session, `<session key>-<device name>`, so rooms don't share conversation history. Requests without a device, and proactive voice, use the configured session |
 | **Background work** | On | Slow requests answer later via announce instead of timing out |
 | **Grace period** | `10` s | Silence before a request is deferred to background (3–60) |
 | **Holding phrase** | “On it — I’ll let you know when it’s done.” | Spoken when a request is deferred |

@@ -144,3 +144,49 @@ class TestOptionOff:
             extra_system_prompt="Context from an automation.",
         )
         assert params["extraSystemPrompt"] == "Context from an automation."
+
+
+class TestSessionPerDevice:
+    @pytest.fixture
+    def entry_options(self) -> dict[str, Any]:
+        return {
+            "agent_id": "voice",
+            "session_key": "voice",
+            "background_enabled": False,
+            "session_per_device": True,
+        }
+
+    async def test_device_gets_own_session(
+        self, hass: HomeAssistant, agent_entity_id: str, gateway: FakeGatewayProtocol, kitchen_satellite
+    ) -> None:
+        device_id, entity_id = kitchen_satellite
+        params = await _turn(hass, gateway, agent_entity_id, device_id=device_id)
+        assert params["sessionKey"] == "agent:voice:voice-kitchen_satellite"
+
+        # Same device via its satellite entity -> same session.
+        params = await _turn(hass, gateway, agent_entity_id, satellite_id=entity_id)
+        assert params["sessionKey"] == "agent:voice:voice-kitchen_satellite"
+
+    async def test_request_without_device_uses_configured_session(
+        self, hass: HomeAssistant, agent_entity_id: str, gateway: FakeGatewayProtocol
+    ) -> None:
+        params = await _turn(hass, gateway, agent_entity_id)
+        assert params["sessionKey"] == "agent:voice:voice"
+
+    async def test_set_session_service_changes_the_base(
+        self, hass: HomeAssistant, agent_entity_id: str, gateway: FakeGatewayProtocol, kitchen_satellite
+    ) -> None:
+        device_id, _ = kitchen_satellite
+        await hass.services.async_call(
+            "openclaw", "set_session", {"session_key": "guest"}, blocking=True
+        )
+        params = await _turn(hass, gateway, agent_entity_id, device_id=device_id)
+        assert params["sessionKey"] == "agent:voice:guest-kitchen_satellite"
+
+
+async def test_shared_session_by_default(
+    hass: HomeAssistant, agent_entity_id: str, gateway: FakeGatewayProtocol, kitchen_satellite
+) -> None:
+    device_id, _ = kitchen_satellite
+    params = await _turn(hass, gateway, agent_entity_id, device_id=device_id)
+    assert params["sessionKey"] == "agent:voice:voice"

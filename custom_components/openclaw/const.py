@@ -20,6 +20,9 @@ DEFAULT_AGENT_ID = None  # Use gateway default agent
 # it, via the gateway's extraSystemPrompt. HA's own extra_system_prompt (from
 # automations and assist_satellite.start_conversation) is always forwarded.
 DEFAULT_SEND_HA_CONTEXT = True
+# Give each satellite/device its own gateway session ("<session_key>-<device>")
+# so rooms don't share conversation history. Off: one shared session.
+DEFAULT_SESSION_PER_DEVICE = False
 
 # Proactive voice: speak agent-initiated turns (cron/background/follow-ups) on a
 # satellite. Opt-in so existing installs are unaffected.
@@ -65,6 +68,7 @@ CONF_BACKGROUND_ENABLED = "background_enabled"
 CONF_BACKGROUND_GRACE = "background_grace"
 CONF_HOLDING_PHRASE = "holding_phrase"
 CONF_SEND_HA_CONTEXT = "send_ha_context"
+CONF_SESSION_PER_DEVICE = "session_per_device"
 # Connection states
 STATE_CONNECTED = "connected"
 STATE_DISCONNECTED = "disconnected"

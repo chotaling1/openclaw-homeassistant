@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import slugify
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,28 +40,44 @@ async def async_build_extra_system_prompt(
     return "\n\n".join(parts) or None
 
 
-def _device_lines(
+def _resolve_device(
     hass: HomeAssistant, user_input: conversation.ConversationInput
-) -> list[str]:
-    """Describe the originating device and its area."""
+) -> tuple[dr.DeviceEntry | None, str | None]:
+    """Return the originating device and its area id (entity area first)."""
     device_id = user_input.device_id
-    area_id: str | None = None
     entity_area_id: str | None = None
-
     if not device_id and user_input.satellite_id:
         entity = er.async_get(hass).async_get(user_input.satellite_id)
         if entity is not None:
             device_id = entity.device_id
             entity_area_id = entity.area_id
     if not device_id:
-        return []
-
+        return None, None
     device = dr.async_get(hass).async_get(device_id)
     if device is None:
-        return []
-    area_id = entity_area_id or device.area_id
+        return None, None
+    return device, entity_area_id or device.area_id
 
-    lines = [f"- Device: {device.name_by_user or device.name or device_id}"]
+
+def device_session_key(
+    hass: HomeAssistant, user_input: conversation.ConversationInput, base: str
+) -> str | None:
+    """Return ``<base>-<device-slug>`` for a request from a device, else None."""
+    device, _area_id = _resolve_device(hass, user_input)
+    if device is None:
+        return None
+    slug = slugify(device.name_by_user or device.name or "") or device.id[:8]
+    return f"{base}-{slug}"
+
+
+def _device_lines(
+    hass: HomeAssistant, user_input: conversation.ConversationInput
+) -> list[str]:
+    """Describe the originating device and its area."""
+    device, area_id = _resolve_device(hass, user_input)
+    if device is None:
+        return []
+    lines = [f"- Device: {device.name_by_user or device.name or device.id}"]
     if area_id and (area := ar.async_get(hass).async_get_area(area_id)):
         lines.append(f"- Area (room): {area.name}")
     return lines
