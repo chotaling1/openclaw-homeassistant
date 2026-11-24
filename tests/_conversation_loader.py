@@ -49,6 +49,10 @@ def load_conversation_module(*, streaming: str = "none") -> ModuleType:
     er_mod = _stub_module("homeassistant.helpers.entity_registry")
     er_mod.async_get = lambda _hass: None
     er_mod.async_entries_for_device = lambda _registry, _device_id: []
+    ar_mod = _stub_module("homeassistant.helpers.area_registry")
+    ar_mod.async_get = lambda _hass: None
+    dr_mod = _stub_module("homeassistant.helpers.device_registry")
+    dr_mod.async_get = lambda _hass: None
     exceptions_mod = _stub_module("homeassistant.exceptions")
     exceptions_mod.HomeAssistantError = type(
         "HomeAssistantError", (Exception,), {}
@@ -172,6 +176,7 @@ def load_conversation_module(*, streaming: str = "none") -> ModuleType:
         "custom_components.openclaw.gateway_client", base / "gateway_client.py"
     )
     _load_module("custom_components.openclaw.phrases", base / "phrases.py")
+    _load_module("custom_components.openclaw.context", base / "context.py")
     return _load_module(
         "custom_components.openclaw.conversation", base / "conversation.py"
     )

@@ -84,6 +84,8 @@
           "background_enabled": "Background work: answer slow requests via a later announcement instead of timing out",
           "background_grace": "Grace period (seconds of silence before deferring to background)",
           "holding_phrase": "Holding phrase, spoken when a request is deferred before the agent has said a complete sentence",
+          "send_ha_context": "Tell the agent the room, device and user each request comes from",
+          "display_results": "Let the agent show pictures on screens that read the chat log, such as Kiosk Satellite ([[ha_display]] directive)",
           "proactive_enabled": "Proactive voice: let the agent speak unprompted (announcements, reminders, follow-ups)",
           "proactive_satellite": "Satellite to speak on (assist_satellite entity)",
           "proactive_mode": "Proactive mode: announce, or start_conversation to also open the mic"

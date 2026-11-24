@@ -321,6 +321,8 @@ All of these are editable any time via **Settings → Devices & Services → Ope
 | **Strip emojis from TTS** | On | Remove emojis from spoken output |
 | **TTS max characters** | `0` (no limit) | Trim long spoken replies (0–2000) |
 | **Streaming responses** | Off | Stream replies so speech starts sooner (needs TTS max characters `0`) — see [Response streaming](#response-streaming) |
+| **Send room, device and user context** | Off | Tell the agent which device and area each request came from, and which HA user typed it — see [Request context](#request-context) |
+| **Show pictures on screens** | Off | Let the agent show pictures on screens that read the chat log, such as Kiosk Satellite — see [Pictures on screens](#pictures-on-screens) |
 | **Background work** | On | Slow requests answer later via announce instead of timing out |
 | **Grace period** | `10` s | Silence before a request is deferred to background (3–60) |
 | **Holding phrase** | “On it — I’ll let you know when it’s done.” | Spoken when a request is deferred before the agent has said a complete sentence |
@@ -476,6 +478,51 @@ Switch sessions dynamically without reconfiguring via `openclaw.set_session` (se
 gateway for its default agent and keys the session as
 `agent:<default-id>:<session>`. Set **Agent** to route to a different one
 explicitly.
+
+### Request context
+
+With **Send room, device and user context** on, each request carries a short
+note for the agent, sent as the gateway's `extraSystemPrompt` rather than as
+part of what the user said:
+
+```
+Home Assistant request context:
+- Device: Office Hub
+- Area (room): Office
+- User: Chuck
+```
+
+- **Device and area** come from the satellite that heard the request (its
+  entity's own area wins over the device's).
+- **User** is named for typed Assist requests; system users are left out.
+- Home Assistant's own `extra_system_prompt` (set by automations and
+  `assist_satellite.start_conversation` to say what the user is answering) is
+  always forwarded, even with the option off.
+- If the gateway refuses the field, the request is resent without it and the
+  context stays off until the next reconnect, so voice never breaks over it.
+
+Tell your agent what to do with it, e.g. "play music on the speaker in the
+request's area unless another room is named".
+
+### Pictures on screens
+
+The gateway does not pass tool results to Home Assistant, so screens that
+draw panels from the chat log (such as [Kiosk Satellite](https://kiosksatellite.com),
+with an administrator token) never see the agent's own searches. With
+**Show pictures on screens** on, the agent can start its reply with a display
+directive:
+
+```
+[[ha_display {"query": "Bulbasaur", "images": [{"url": "https://...", "title": "Bulbasaur"}]}]]
+Here's Bulbasaur.
+```
+
+The integration keeps the directive out of what is spoken and shown, and
+records it in the chat log as an external `search_images` tool call whose
+result lists the pictures (`results[].image_url`, `thumbnail_url`, `title`).
+Up to eight `http(s)` images are kept. A directive later in the reply is
+still removed and recorded; one in a background announcement is only
+removed. Needs Home Assistant 2025.7 or later for external tool calls.
 
 ### Model & thinking overrides
 

@@ -84,6 +84,8 @@
           "background_enabled": "バックグラウンド処理: 時間のかかるリクエストはタイムアウトさせず、後からアナウンスで回答する",
           "background_grace": "猶予時間 (バックグラウンドに回すまでの無音の秒数)",
           "holding_phrase": "つなぎのフレーズ。エージェントが一文を言い終える前にリクエストが後回しになったときに話します",
+          "send_ha_context": "各リクエストの送信元の部屋、デバイス、ユーザーをエージェントに伝える",
+          "display_results": "チャットログを読む画面 (Kiosk Satellite など) にエージェントが画像を表示できるようにする ([[ha_display]] 指示)",
           "proactive_enabled": "プロアクティブ音声: エージェントが自発的に話せるようにする (お知らせ、リマインダー、フォローアップ)",
           "proactive_satellite": "話しかけるサテライト (assist_satellite エンティティ)",
           "proactive_mode": "プロアクティブモード: announce、またはマイクも開く start_conversation"

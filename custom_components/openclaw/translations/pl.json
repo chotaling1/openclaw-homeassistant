@@ -84,6 +84,8 @@
           "background_enabled": "Praca w tle: odpowiadaj na powolne polecenia późniejszym komunikatem zamiast przekraczać limit czasu",
           "background_grace": "Czas oczekiwania (sekundy ciszy przed przeniesieniem do tła)",
           "holding_phrase": "Zdanie na przeczekanie, wypowiadane, gdy polecenie zostaje odroczone, zanim agent wypowie pełne zdanie",
+          "send_ha_context": "Informuj agenta, z którego pomieszczenia, urządzenia i od którego użytkownika pochodzi każde polecenie",
+          "display_results": "Pozwól agentowi pokazywać zdjęcia na ekranach czytających dziennik czatu, takich jak Kiosk Satellite (dyrektywa [[ha_display]])",
           "proactive_enabled": "Głos proaktywny: pozwól agentowi odzywać się z własnej inicjatywy (komunikaty, przypomnienia, dopytania)",
           "proactive_satellite": "Satelita, na którym agent ma mówić (encja assist_satellite)",
           "proactive_mode": "Tryb proaktywny: announce albo start_conversation, aby dodatkowo włączyć mikrofon"

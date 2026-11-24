@@ -84,6 +84,8 @@
           "background_enabled": "Trabajo en segundo plano: responder a las solicitudes lentas con un aviso posterior en lugar de agotar el tiempo",
           "background_grace": "Periodo de gracia (segundos de silencio antes de pasar a segundo plano)",
           "holding_phrase": "Frase de espera, que se dice cuando una solicitud se aplaza antes de que el agente haya dicho una frase completa",
+          "send_ha_context": "Indicar al agente la habitación, el dispositivo y el usuario de los que procede cada solicitud",
+          "display_results": "Permitir que el agente muestre imágenes en pantallas que leen el registro del chat, como Kiosk Satellite (directiva [[ha_display]])",
           "proactive_enabled": "Voz proactiva: permite que el agente hable por iniciativa propia (avisos, recordatorios, seguimientos)",
           "proactive_satellite": "Satélite por el que hablar (entidad assist_satellite)",
           "proactive_mode": "Modo proactivo: announce, o start_conversation para abrir además el micrófono"

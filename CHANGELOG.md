@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.10.1-fork.1 — 2026-11-24 (chotaling1 fork)
+
+Based on upstream 1.10.1.
+
+### Added
+
+- **Request context** (option, off by default): the agent is told the device,
+  area and HA user each request comes from, via the gateway's
+  `extraSystemPrompt`. Home Assistant's own `extra_system_prompt` is now
+  always forwarded. A gateway that rejects the field gets the request again
+  without it. Ported from the fork's earlier #20.
+- **Pictures on screens** (option, off by default): a `[[ha_display {...}]]`
+  directive in the reply is removed from speech and recorded in the chat log
+  as an external `search_images` tool call and result, which Kiosk Satellite
+  shows as an image panel.
+
 ## 1.10.1 — 2026-11-14
 
 ### Changed

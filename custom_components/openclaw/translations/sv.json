@@ -84,6 +84,8 @@
           "background_enabled": "Bakgrundsarbete: besvara långsamma förfrågningar med ett senare meddelande i stället för att tidsgränsen går ut",
           "background_grace": "Väntetid (sekunder av tystnad innan förfrågan flyttas till bakgrunden)",
           "holding_phrase": "Väntefras som sägs när en förfrågan skjuts upp innan agenten har sagt en hel mening",
+          "send_ha_context": "Berätta för agenten vilket rum, vilken enhet och vilken användare varje förfrågan kommer från",
+          "display_results": "Låt agenten visa bilder på skärmar som läser chattloggen, till exempel Kiosk Satellite ([[ha_display]]-direktiv)",
           "proactive_enabled": "Proaktiv röst: låt agenten tala på eget initiativ (meddelanden, påminnelser, uppföljningar)",
           "proactive_satellite": "Satellit att tala på (assist_satellite-entitet)",
           "proactive_mode": "Proaktivt läge: announce, eller start_conversation för att även öppna mikrofonen"

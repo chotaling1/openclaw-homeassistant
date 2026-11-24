@@ -84,6 +84,8 @@
           "background_enabled": "后台处理：对耗时较长的请求稍后通过播报回复，而不是超时",
           "background_grace": "宽限时间（转入后台前保持静默的秒数）",
           "holding_phrase": "等待提示语：在智能体说完一个完整句子之前请求被转入后台时播报",
+          "send_ha_context": "告诉智能体每个请求来自哪个房间、哪个设备和哪个用户",
+          "display_results": "允许智能体在读取聊天记录的屏幕（如 Kiosk Satellite）上显示图片（[[ha_display]] 指令）",
           "proactive_enabled": "主动语音：允许智能体主动说话（通知、提醒、后续跟进）",
           "proactive_satellite": "用于播报的语音卫星（assist_satellite 实体）",
           "proactive_mode": "主动模式：announce，或使用 start_conversation 同时打开麦克风"

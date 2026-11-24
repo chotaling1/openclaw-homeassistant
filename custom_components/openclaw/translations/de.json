@@ -84,6 +84,8 @@
           "background_enabled": "Hintergrundarbeit: Langsame Anfragen später per Ansage beantworten, statt abzubrechen",
           "background_grace": "Wartezeit (Sekunden Stille, bevor in den Hintergrund verschoben wird)",
           "holding_phrase": "Überbrückungssatz, der gesprochen wird, wenn eine Anfrage verschoben wird, bevor der Agent einen vollständigen Satz gesagt hat",
+          "send_ha_context": "Dem Agenten mitteilen, aus welchem Raum, von welchem Gerät und von welchem Benutzer jede Anfrage kommt",
+          "display_results": "Dem Agenten erlauben, Bilder auf Bildschirmen anzuzeigen, die das Chatprotokoll lesen, etwa Kiosk Satellite ([[ha_display]]-Anweisung)",
           "proactive_enabled": "Proaktive Sprache: Der Agent darf von sich aus sprechen (Ansagen, Erinnerungen, Rückfragen)",
           "proactive_satellite": "Satellit für die Sprachausgabe (assist_satellite-Entität)",
           "proactive_mode": "Proaktiver Modus: announce, oder start_conversation, um zusätzlich das Mikrofon zu öffnen"

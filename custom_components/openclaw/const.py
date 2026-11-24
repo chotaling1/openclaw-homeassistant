@@ -15,7 +15,14 @@ DEFAULT_TTS_MAX_CHARS = 0  # 0 disables TTS trimming
 # Stream replies into the HA ChatLog so TTS can start before the agent is
 # done. Opt-in while it is new: off keeps the complete-reply path.
 DEFAULT_STREAMING_ENABLED = False
+# Let the agent show pictures on satellites that read the chat log (such as
+# Kiosk Satellite) with a [[ha_display ...]] directive; see display.py.
+DEFAULT_DISPLAY_RESULTS = False
 DEFAULT_AGENT_ID = None  # Use gateway default agent
+# Tell the agent which room/device a request came from and which HA user sent
+# it, via the gateway's extraSystemPrompt. HA's own extra_system_prompt (from
+# automations and assist_satellite.start_conversation) is always forwarded.
+DEFAULT_SEND_HA_CONTEXT = False
 
 # Proactive voice: speak agent-initiated turns (cron/background/follow-ups) on a
 # satellite. Opt-in so existing installs are unaffected.
@@ -60,12 +67,14 @@ CONF_THINKING = "thinking"
 CONF_STRIP_EMOJIS = "strip_emojis"
 CONF_TTS_MAX_CHARS = "tts_max_chars"
 CONF_STREAMING_ENABLED = "streaming_enabled"
+CONF_DISPLAY_RESULTS = "display_results"
 CONF_PROACTIVE_ENABLED = "proactive_enabled"
 CONF_PROACTIVE_SATELLITE = "proactive_satellite"
 CONF_PROACTIVE_MODE = "proactive_mode"
 CONF_BACKGROUND_ENABLED = "background_enabled"
 CONF_BACKGROUND_GRACE = "background_grace"
 CONF_HOLDING_PHRASE = "holding_phrase"
+CONF_SEND_HA_CONTEXT = "send_ha_context"
 # Connection states
 STATE_CONNECTED = "connected"
 STATE_DISCONNECTED = "disconnected"

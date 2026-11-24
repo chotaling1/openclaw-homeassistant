@@ -84,6 +84,8 @@
           "background_enabled": "Achtergrondwerk: beantwoord trage verzoeken later met een melding in plaats van een time-out",
           "background_grace": "Wachttijd (seconden stilte voordat naar de achtergrond wordt verplaatst)",
           "holding_phrase": "Overbruggingszin, uitgesproken wanneer een verzoek wordt uitgesteld voordat de agent een volledige zin heeft gezegd",
+          "send_ha_context": "De agent vertellen uit welke ruimte, van welk apparaat en van welke gebruiker elk verzoek komt",
+          "display_results": "De agent afbeeldingen laten tonen op schermen die het chatlogboek lezen, zoals Kiosk Satellite ([[ha_display]]-instructie)",
           "proactive_enabled": "Proactieve spraak: laat de agent uit zichzelf spreken (meldingen, herinneringen, vervolgvragen)",
           "proactive_satellite": "Satelliet om op te spreken (assist_satellite-entiteit)",
           "proactive_mode": "Proactieve modus: announce, of start_conversation om ook de microfoon te openen"

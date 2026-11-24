@@ -84,6 +84,8 @@
           "background_enabled": "백그라운드 작업: 느린 요청은 시간 초과 대신 나중에 알림으로 답변",
           "background_grace": "대기 시간 (백그라운드로 넘기기 전 침묵하는 초)",
           "holding_phrase": "대기 문구. 에이전트가 한 문장을 다 말하기 전에 요청이 미뤄질 때 말합니다",
+          "send_ha_context": "각 요청이 어느 방, 기기, 사용자에게서 왔는지 에이전트에게 알림",
+          "display_results": "채팅 기록을 읽는 화면(Kiosk Satellite 등)에 에이전트가 사진을 표시하도록 허용 ([[ha_display]] 지시문)",
           "proactive_enabled": "선제적 음성: 에이전트가 먼저 말할 수 있도록 허용 (알림, 리마인더, 후속 안내)",
           "proactive_satellite": "말할 위성 기기 (assist_satellite 엔티티)",
           "proactive_mode": "선제적 모드: announce, 또는 마이크도 여는 start_conversation"

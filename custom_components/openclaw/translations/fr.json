@@ -84,6 +84,8 @@
           "background_enabled": "Travail en arrière-plan : répondre aux demandes lentes par une annonce ultérieure plutôt que d'expirer",
           "background_grace": "Délai de grâce (secondes de silence avant le passage en arrière-plan)",
           "holding_phrase": "Phrase d'attente, prononcée lorsqu'une demande est différée avant que l'agent ait dit une phrase complète",
+          "send_ha_context": "Indiquer à l'agent la pièce, l'appareil et l'utilisateur d'où provient chaque demande",
+          "display_results": "Permettre à l'agent d'afficher des images sur les écrans qui lisent le journal de conversation, comme Kiosk Satellite (directive [[ha_display]])",
           "proactive_enabled": "Voix proactive : laisser l'agent parler de lui-même (annonces, rappels, relances)",
           "proactive_satellite": "Satellite sur lequel parler (entité assist_satellite)",
           "proactive_mode": "Mode proactif : announce, ou start_conversation pour ouvrir aussi le micro"

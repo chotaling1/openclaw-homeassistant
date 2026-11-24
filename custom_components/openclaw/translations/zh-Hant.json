@@ -84,6 +84,8 @@
           "background_enabled": "背景處理：對耗時較長的請求稍後透過播報回覆，而不是逾時",
           "background_grace": "寬限時間（轉入背景前保持靜默的秒數）",
           "holding_phrase": "等待提示語：在代理程式說完一個完整句子之前請求被轉入背景時播報",
+          "send_ha_context": "告訴代理程式每個請求來自哪個房間、哪個裝置和哪個使用者",
+          "display_results": "允許代理程式在讀取聊天記錄的螢幕（如 Kiosk Satellite）上顯示圖片（[[ha_display]] 指令）",
           "proactive_enabled": "主動語音：允許代理程式主動說話（通知、提醒、後續追蹤）",
           "proactive_satellite": "用於播報的語音衛星（assist_satellite 實體）",
           "proactive_mode": "主動模式：announce，或使用 start_conversation 同時開啟麥克風"

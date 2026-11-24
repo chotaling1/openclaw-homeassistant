@@ -20,25 +20,31 @@ from .const import (
     BACKGROUND_TIMEOUT_PHRASE,
     EMPTY_REPLY_PHRASE,
     CONF_BACKGROUND_ENABLED,
+    CONF_DISPLAY_RESULTS,
     CONF_BACKGROUND_GRACE,
     CONF_HOLDING_PHRASE,
     CONF_PROACTIVE_ENABLED,
     CONF_PROACTIVE_MODE,
     CONF_PROACTIVE_SATELLITE,
+    CONF_SEND_HA_CONTEXT,
     CONF_STREAMING_ENABLED,
     CONF_STRIP_EMOJIS,
     CONF_TTS_MAX_CHARS,
     DEFAULT_BACKGROUND_ENABLED,
+    DEFAULT_DISPLAY_RESULTS,
     DEFAULT_BACKGROUND_GRACE,
     DEFAULT_HOLDING_PHRASE,
     DEFAULT_PROACTIVE_ENABLED,
     DEFAULT_PROACTIVE_MODE,
+    DEFAULT_SEND_HA_CONTEXT,
     DEFAULT_STREAMING_ENABLED,
     DEFAULT_STRIP_EMOJIS,
     DEFAULT_TTS_MAX_CHARS,
     DOMAIN,
     PROACTIVE_MODE_START_CONVERSATION,
 )
+from .context import async_build_extra_system_prompt
+from .display import TOOL_NAME, DirectiveStripper, DisplayResult, strip_directives
 from .exceptions import (
     AgentExecutionError,
     GatewayAuthenticationError,
@@ -70,6 +76,44 @@ EMOJI_PATTERN = re.compile(
     f"[{_EMOJI_CHARS}]+(?:\u200D[{_EMOJI_CHARS}]+)*",
     flags=re.UNICODE,
 )
+
+
+def _llm_module() -> Any:
+    """Home Assistant's llm helper, or None where it is missing."""
+    try:
+        from homeassistant.helpers import llm  # pylint: disable=import-outside-toplevel
+    except ImportError:
+        return None
+    return llm if hasattr(llm, "ToolInput") else None
+
+
+def _tool_result_kwargs(llm: Any, data: dict[str, Any]) -> dict[str, Any]:
+    """The tool result argument in the form this Home Assistant expects.
+
+    2026.11 wraps the data in llm.ToolResult as ``result``; older releases
+    take the plain data as ``tool_result``.
+    """
+    result_cls = getattr(llm, "ToolResult", None)
+    if result_cls is not None:
+        return {"result": result_cls(data=data)}
+    return {"tool_result": data}
+
+
+async def _with_display(
+    chunk_source: AsyncIterator[str], display: DirectiveStripper | None
+) -> AsyncIterator[str]:
+    """Pass chunks through, keeping display directives out when asked."""
+    if display is None:
+        async for chunk in chunk_source:
+            yield chunk
+        return
+    async for chunk in chunk_source:
+        visible = display.feed(chunk)
+        if visible:
+            yield visible
+    tail = display.finish()
+    if tail:
+        yield tail
 
 
 def strip_emojis(text: str) -> str:
@@ -227,7 +271,104 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
 
     def _on_proactive_message(self, text: str) -> None:
         """Schedule a satellite announcement (called from the event loop)."""
+        if self._display_enabled():
+            text, _ = strip_directives(text)
+            if not text:
+                return
         self.hass.async_create_task(self._async_announce(text))
+
+    def _display_enabled(self) -> bool:
+        """Whether display directives are parsed out of replies."""
+        config = {**self._config_entry.data, **self._config_entry.options}
+        return bool(config.get(CONF_DISPLAY_RESULTS, DEFAULT_DISPLAY_RESULTS))
+
+    def _display_contents(
+        self, agent_id: str, result: DisplayResult
+    ) -> tuple[Any, Any] | None:
+        """Build the external tool call and its result for the chat log.
+
+        None when this Home Assistant has no external tool calls (before
+        2025.7); the directive is still kept out of the spoken reply.
+        """
+        llm = _llm_module()
+        tool_result_cls = getattr(conversation, "ToolResultContent", None)
+        if llm is None or tool_result_cls is None:
+            return None
+        try:
+            call = llm.ToolInput(
+                tool_name=TOOL_NAME, tool_args=result.tool_args, external=True
+            )
+        except TypeError:
+            return None
+        assistant = conversation.AssistantContent(
+            agent_id=agent_id, tool_calls=[call]
+        )
+        tool_result = tool_result_cls(
+            agent_id=agent_id,
+            tool_call_id=call.id,
+            tool_name=TOOL_NAME,
+            **_tool_result_kwargs(llm, result.data),
+        )
+        return assistant, tool_result
+
+    def _display_deltas(
+        self, agent_id: str | None, results: list[DisplayResult]
+    ) -> list[dict[str, Any]]:
+        """Chat log deltas that record display results before the answer."""
+        llm = _llm_module()
+        if llm is None or not hasattr(conversation, "ToolResultContent"):
+            return []
+        deltas: list[dict[str, Any]] = []
+        for index, result in enumerate(results):
+            try:
+                call = llm.ToolInput(
+                    tool_name=TOOL_NAME, tool_args=result.tool_args, external=True
+                )
+            except TypeError:
+                return []
+            if index:
+                deltas.append({"role": "assistant"})
+            deltas.append({"tool_calls": [call]})
+            deltas.append(
+                {
+                    "role": "tool_result",
+                    "tool_call_id": call.id,
+                    "tool_name": TOOL_NAME,
+                    **_tool_result_kwargs(llm, result.data),
+                }
+            )
+        if deltas:
+            deltas.append({"role": "assistant"})
+        return deltas
+
+    def _add_display_results(
+        self,
+        chat_log: conversation.ChatLog,
+        agent_id: str,
+        results: list[DisplayResult],
+        *,
+        before_last: bool = False,
+    ) -> None:
+        """Record display results in the chat log.
+
+        ``before_last`` slots them in ahead of the final answer, which Home
+        Assistant reads the spoken reply from, for a directive that arrived
+        after the answer had started streaming.
+        """
+        for result in results:
+            contents = self._display_contents(agent_id, result)
+            if contents is None:
+                return
+            if (
+                before_last
+                and chat_log.content
+                and isinstance(chat_log.content[-1], conversation.AssistantContent)
+            ):
+                index = len(chat_log.content) - 1
+                chat_log.content[index:index] = list(contents)
+                continue
+            for content in contents:
+                chat_log.async_add_assistant_content_without_tools(content)
 
     async def _async_announce(
         self, text: str, satellite: str | None = None
@@ -373,19 +514,33 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
 
         try:
             config = {**self._config_entry.data, **self._config_entry.options}
+            extra_system_prompt = await async_build_extra_system_prompt(
+                getattr(self, "hass", None),
+                user_input,
+                include_ha_context=config.get(
+                    CONF_SEND_HA_CONTEXT, DEFAULT_SEND_HA_CONTEXT
+                ),
+            )
             if config.get(CONF_BACKGROUND_ENABLED, DEFAULT_BACKGROUND_ENABLED):
                 return await self._handle_with_grace(
-                    user_input, chat_log, user_message, config
+                    user_input,
+                    chat_log,
+                    user_message,
+                    config,
+                    extra_system_prompt=extra_system_prompt,
                 )
 
             streaming_result = await self._build_streaming_result(
-                user_input, chat_log, user_message
+                user_input,
+                chat_log,
+                user_message,
+                extra_system_prompt=extra_system_prompt,
             )
             if streaming_result is not None:
                 return streaming_result
 
             response_text = await self._gateway_client.send_agent_request(
-                user_message
+                user_message, extra_system_prompt=extra_system_prompt
             )
             return self._build_plain_result(
                 user_input, chat_log, _reply_or_fallback(response_text, user_input.language)
@@ -463,6 +618,8 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         chat_log: conversation.ChatLog,
         user_message: str,
         config: dict[str, Any],
+        *,
+        extra_system_prompt: str | None = None,
     ) -> conversation.ConversationResult:
         """Race the agent run against the grace period.
 
@@ -475,7 +632,9 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         """
         grace = config.get(CONF_BACKGROUND_GRACE, DEFAULT_BACKGROUND_GRACE)
         holding_phrase = _holding_phrase(config, user_input.language)
-        agent_run = await self._gateway_client.begin_agent_run(user_message)
+        agent_run = await self._gateway_client.begin_agent_run(
+            user_message, extra_system_prompt=extra_system_prompt
+        )
 
         try:
             first_chunk = await agent_run.get_chunk(grace)
@@ -619,6 +778,8 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
                 agent_run, BACKGROUND_MAX_SECONDS
             )
             text = _without_prefix(text, already_said)
+            if self._display_enabled():
+                text, _ = strip_directives(text)
         except GatewayTimeoutError:
             _LOGGER.warning(
                 "Background run %s did not finish within %ss",
@@ -677,6 +838,7 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         user_message: str,
         chunk_source: AsyncIterator[str] | None = None,
         deferral: _Deferral | None = None,
+        extra_system_prompt: str | None = None,
     ) -> conversation.ConversationResult | None:
         """Stream the reply into the chat log so HA can start TTS early.
 
@@ -689,19 +851,27 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
 
         if chunk_source is None:
             chunk_source = self._gateway_client.stream_agent_request(
-                user_message
+                user_message, extra_system_prompt=extra_system_prompt
             )
         response_text = ""
+        display = DirectiveStripper() if self._display_enabled() else None
         async for content in chat_log.async_add_delta_content_stream(
             user_input.agent_id,
             self._stream_deltas(
                 chunk_source,
                 config.get(CONF_STRIP_EMOJIS, DEFAULT_STRIP_EMOJIS),
                 user_input.language,
+                display=display,
+                agent_id=user_input.agent_id,
             ),
         ):
             if isinstance(content, conversation.AssistantContent):
                 response_text = content.content or ""
+        if display is not None and display.results:
+            # Directives after the answer started: slot them in before it.
+            self._add_display_results(
+                chat_log, user_input.agent_id, display.results, before_last=True
+            )
 
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
         deferred = deferral is not None and deferral.quiet
@@ -715,13 +885,30 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         chunk_source: AsyncIterator[str],
         should_strip: bool,
         language: object = None,
-    ) -> AsyncIterator[dict[str, str]]:
-        """Translate Gateway chunks into ChatLog assistant deltas."""
+        *,
+        display: DirectiveStripper | None = None,
+        agent_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Translate Gateway chunks into ChatLog assistant deltas.
+
+        With ``display``, directives are kept out of the text; one that comes
+        before any of the answer is recorded as an external tool call and
+        result ahead of it, and is removed from ``display.results``.
+        """
         yield {"role": "assistant"}
         had_content = False
         had_raw_content = False
         try:
-            async for chunk in chunk_source:
+            async for chunk in _with_display(chunk_source, display):
+                if (
+                    display is not None
+                    and display.results
+                    and chunk
+                    and not had_content
+                ):
+                    for delta in self._display_deltas(agent_id, display.results):
+                        yield delta
+                    display.results.clear()
                 if chunk and chunk.strip():
                     had_raw_content = True
                 if chunk and should_strip:
@@ -762,6 +949,10 @@ class OpenClawConversationEntity(conversation.ConversationEntity):
         intent_response: intent.IntentResponse,
     ) -> None:
         """Add response to chat log and set TTS speech."""
+        if self._display_enabled():
+            response_text, results = strip_directives(response_text)
+            if results:
+                self._add_display_results(chat_log, user_input.agent_id, results)
         chat_log.async_add_assistant_content_without_tools(
             conversation.AssistantContent(
                 agent_id=user_input.agent_id,

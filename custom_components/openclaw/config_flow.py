@@ -18,10 +18,12 @@ from .const import (
     CONF_CLIENT_CERT,
     CONF_CLIENT_KEY,
     CONF_BACKGROUND_ENABLED,
+    CONF_DISPLAY_RESULTS,
     CONF_BACKGROUND_GRACE,
     CONF_HOLDING_PHRASE,
     CONF_MODEL,
     CONF_PROACTIVE_ENABLED,
+    CONF_SEND_HA_CONTEXT,
     CONF_PROACTIVE_MODE,
     CONF_PROACTIVE_SATELLITE,
     CONF_SESSION_KEY,
@@ -32,12 +34,14 @@ from .const import (
     CONF_USE_SSL,
     DEFAULT_AGENT_ID,
     DEFAULT_BACKGROUND_ENABLED,
+    DEFAULT_DISPLAY_RESULTS,
     DEFAULT_BACKGROUND_GRACE,
     DEFAULT_HOLDING_PHRASE,
     DEFAULT_HOST,
     DEFAULT_MODEL,
     DEFAULT_PORT,
     DEFAULT_PROACTIVE_ENABLED,
+    DEFAULT_SEND_HA_CONTEXT,
     DEFAULT_PROACTIVE_MODE,
     DEFAULT_SESSION_KEY,
     DEFAULT_STREAMING_ENABLED,
@@ -709,6 +713,18 @@ class OpenClawOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_STREAMING_ENABLED,
                     default=current.get(
                         CONF_STREAMING_ENABLED, DEFAULT_STREAMING_ENABLED
+                    ),
+                ): bool,
+                vol.Optional(
+                    CONF_SEND_HA_CONTEXT,
+                    default=current.get(
+                        CONF_SEND_HA_CONTEXT, DEFAULT_SEND_HA_CONTEXT
+                    ),
+                ): bool,
+                vol.Optional(
+                    CONF_DISPLAY_RESULTS,
+                    default=current.get(
+                        CONF_DISPLAY_RESULTS, DEFAULT_DISPLAY_RESULTS
                     ),
                 ): bool,
                 **_background_schema_fields(current),
